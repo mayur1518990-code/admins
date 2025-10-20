@@ -215,7 +215,7 @@ export async function GET(request: NextRequest) {
     const agentsSnapshot = await adminDb.collection('agents')
       .where('isActive', '==', true)
       .get();
- Auto-assign GET: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
+    console.log(`Auto-assign GET: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
 
     // OPTIMIZED: Get ALL assigned files with limit to prevent huge queries
     const allAssignedFilesSnapshot = await adminDb.collection('files')
@@ -254,8 +254,8 @@ export async function GET(request: NextRequest) {
       .where('assignedAgentId', '==', null)
       .limit(1000) // Limit to prevent huge queries
       .get();
-
- Auto-assign GET total: ${Date.now() - startTime}ms`);
+    
+    console.log(`Auto-assign GET total: ${Date.now() - startTime}ms`);
     return NextResponse.json({
       success: true,
       data: {

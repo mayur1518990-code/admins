@@ -6,14 +6,14 @@ import { verifyAdminAuth } from "@/lib/admin-auth";
 async function triggerAutoAssignment(fileIds: string[]) {
   const startTime = Date.now();
   try {
- Monitor auto-assign: Starting for ${fileIds.length} files`);
+    console.log(`Monitor auto-assign: Starting for ${fileIds.length} files`);
     
     // Get all active agents
     const agentsQueryStart = Date.now();
     const agentsSnapshot = await adminDb.collection('agents')
       .where('isActive', '==', true)
       .get();
- Monitor: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
+    console.log(`Monitor: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
 
     if (agentsSnapshot.empty) {
       console.log('[MONITOR] No active agents found');
@@ -128,7 +128,7 @@ async function triggerAutoAssignment(fileIds: string[]) {
       // Commit batch if we hit the limit
       if (operationCount >= MAX_BATCH_SIZE) {
         await batch.commit();
- Monitor: Committed batch of ${operationCount} operations`);
+        console.log(`Monitor: Committed batch of ${operationCount} operations`);
         batch = adminDb.batch(); // Create new batch
         operationCount = 0;
       }
@@ -147,11 +147,11 @@ async function triggerAutoAssignment(fileIds: string[]) {
     // Commit any remaining operations
     if (operationCount > 0) {
       await batch.commit();
- Monitor: Final batch committed with ${operationCount} operations`);
+      console.log(`Monitor: Final batch committed with ${operationCount} operations`);
     }
 
- Monitor: Assignment logic: ${Date.now() - assignmentStart}ms`);
- Monitor: Total time: ${Date.now() - startTime}ms (assigned: ${assignments.length})`);
+    console.log(`Monitor: Assignment logic: ${Date.now() - assignmentStart}ms`);
+    console.log(`Monitor: Total time: ${Date.now() - startTime}ms (assigned: ${assignments.length})`);
 
     return {
       success: true,

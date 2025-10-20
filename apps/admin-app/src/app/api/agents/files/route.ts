@@ -182,13 +182,13 @@ export async function PATCH(request: NextRequest) {
         timestamp: new Date()
       })
     ]);
- Parallel file update and log: ${Date.now() - operationStart}ms`);
+    console.log(`Parallel file update and log: ${Date.now() - operationStart}ms`);
 
     // Invalidate cache
     serverCache.deleteByPrefix('agents-files:');
     serverCache.deleteByPrefix('agent-files:');
 
- Agents files PATCH total: ${Date.now() - startTime}ms`);
+    console.log(`Agents files PATCH total: ${Date.now() - startTime}ms`);
 
     return NextResponse.json({
       success: true,

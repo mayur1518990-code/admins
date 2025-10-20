@@ -12,7 +12,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { fileIds, assignmentType = 'auto_workload' } = await request.json();
-
     if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
       return NextResponse.json({ 
         success: false, 
@@ -20,14 +19,14 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
- Auto-assign POST: Starting for ${fileIds.length} files`);
+    console.log(`Auto-assign POST: Starting for ${fileIds.length} files`);
 
     // Get all active agents
     const agentsQueryStart = Date.now();
     const agentsSnapshot = await adminDb.collection('agents')
       .where('isActive', '==', true)
       .get();
- Auto-assign POST: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
+    console.log(`Auto-assign POST: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
 
     if (agentsSnapshot.empty) {
       return NextResponse.json({ 
@@ -149,7 +148,7 @@ export async function POST(request: NextRequest) {
       // Commit batch if we hit the limit
       if (operationCount >= MAX_BATCH_SIZE) {
         await batch.commit();
- Auto-assign POST: Committed batch of ${operationCount} operations`);
+        console.log(`Auto-assign POST: Committed batch of ${operationCount} operations`);
         operationCount = 0;
       }
     }
@@ -167,10 +166,10 @@ export async function POST(request: NextRequest) {
     // Commit any remaining operations
     if (operationCount > 0) {
       await batch.commit();
- Auto-assign POST: Final batch committed with ${operationCount} operations`);
+      console.log(`Auto-assign POST: Final batch committed with ${operationCount} operations`);
     }
 
- Auto-assign POST: Assignment logic: ${Date.now() - assignmentStart}ms`);
+    console.log(`Auto-assign POST: Assignment logic: ${Date.now() - assignmentStart}ms`);
 
     // Log the automatic assignment
     await adminDb.collection('logs').add({
@@ -183,7 +182,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date()
     });
 
- Auto-assign POST total: ${Date.now() - startTime}ms`);
+    console.log(`Auto-assign POST total: ${Date.now() - startTime}ms`);
     return NextResponse.json({
       success: true,
       message: `Successfully auto-assigned ${fileIds.length} file(s)`,

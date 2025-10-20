@@ -20,7 +20,7 @@ export async function GET(
     // Get file information
     const queryStart = Date.now();
     const fileDoc = await adminDb.collection('files').doc(fileId).get();
- File query: ${Date.now() - queryStart}ms`);
+    console.log(`File query: ${Date.now() - queryStart}ms`);
     if (!fileDoc.exists) {
       return NextResponse.json({
         success: false,
@@ -67,8 +67,7 @@ export async function GET(
       headers.set('Content-Type', fileData.mimeType || 'application/octet-stream');
       headers.set('Content-Disposition', `attachment; filename="${fileData.originalName}"`);
       headers.set('Content-Length', buffer.length.toString());
-
- Download total: ${Date.now() - startTime}ms, size: ${buffer.length} bytes`);
+      console.log(`Download total: ${Date.now() - startTime}ms, size: ${buffer.length} bytes`);
 
       // Return the file content
       return new NextResponse(buffer, {

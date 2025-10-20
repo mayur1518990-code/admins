@@ -18,12 +18,12 @@ export async function POST(request: NextRequest) {
     // Sign in with Firebase Auth
     const authStart = Date.now();
     const userRecord = await adminAuth.getUserByEmail(email);
- Firebase auth by email: ${Date.now() - authStart}ms`);
+    console.log(`Firebase auth by email: ${Date.now() - authStart}ms`);
     
     // Verify the user exists in agents collection
     const queryStart = Date.now();
     const agentDoc = await adminDb.collection('agents').doc(userRecord.uid).get();
- Agent doc query: ${Date.now() - queryStart}ms`);
+    console.log(`Agent doc query: ${Date.now() - queryStart}ms`);
     
     if (!agentDoc.exists) {
       return NextResponse.json(
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       email: agentData.email,
       name: agentData.name
     });
- Custom token creation: ${Date.now() - tokenStart}ms`);
+    console.log(`Custom token creation: ${Date.now() - tokenStart}ms`);
 
     // OPTIMIZATION: Parallel operations (update last login + set cookie)
     const operationStart = Date.now();
@@ -64,8 +64,8 @@ export async function POST(request: NextRequest) {
         maxAge: 60 * 60 * 24 * 7 // 7 days
       }))
     ]);
- Parallel update and cookie set: ${Date.now() - operationStart}ms`);
- Agents auth login total: ${Date.now() - startTime}ms`);
+    console.log(`Parallel update and cookie set: ${Date.now() - operationStart}ms`);
+    console.log(`Agents auth login total: ${Date.now() - startTime}ms`);
 
     return NextResponse.json({
       success: true,

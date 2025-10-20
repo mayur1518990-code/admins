@@ -4,7 +4,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 
 // Initialize Firebase Admin
-const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/^"|"$/g, '') || '';
+// Handle both true multiline and "\n"-escaped private keys
+const privateKey = (process.env.FIREBASE_PRIVATE_KEY || '')
+  .replace(/^"|"$/g, '')
+  .replace(/\\n/g, '\n');
 
 const firebaseAdminConfig = {
   credential: cert({

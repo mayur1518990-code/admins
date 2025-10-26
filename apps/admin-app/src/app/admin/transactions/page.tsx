@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCached, setCached, getCacheKey, isFresh } from "@/lib/cache";
 
@@ -48,6 +49,22 @@ export default function TransactionsPage() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<"csv" | "pdf">("csv");
   const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
+  
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Debounce search term to avoid excessive API calls
   useEffect(() => {
@@ -268,30 +285,41 @@ export default function TransactionsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-16 bg-gray-200 rounded"></div>
-                  ))}
+      <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <div className="flex-1 flex flex-col">
+          <MobileHeader 
+            title="Transaction History" 
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          />
+          <main className="flex-1 p-6 mobile-app-content">
+            <div className="max-w-7xl mx-auto">
+              <div className="animate-pulse">
+                <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <div className="space-y-4">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 bg-gray-200 rounded"></div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar />
-      <main className="flex-1 p-6">
+    <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <div className="flex-1 flex flex-col">
+        <MobileHeader 
+          title="Transaction History" 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        />
+        <main className="flex-1 p-6 mobile-app-content">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-900">
@@ -572,6 +600,7 @@ export default function TransactionsPage() {
           )}
         </div>
       </main>
+      </div>
 
       {/* Export Modal */}
       {showExportModal && (

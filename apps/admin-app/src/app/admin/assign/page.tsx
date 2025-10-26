@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCached, setCached, getCacheKey, isFresh } from "@/lib/cache";
 
@@ -22,6 +23,22 @@ export default function AssignmentPage() {
   const [stats, setStats] = useState<AssignmentStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     loadAssignmentStats();
@@ -92,50 +109,67 @@ export default function AssignmentPage() {
 
   if (isLoading && !stats) {
     return (
-      <div className="flex h-screen">
-        <Sidebar />
-        <main className="flex-1 p-8">
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">Loading assignment statistics...</p>
+      <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <div className="flex-1 flex flex-col">
+          <MobileHeader 
+            title="Assignment Overview" 
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          />
+          <main className="flex-1 p-8 mobile-app-content">
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-4 text-gray-600">Loading assignment statistics...</p>
+              </div>
             </div>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     );
   }
 
   if (error && !stats) {
     return (
-      <div className="flex h-screen">
-        <Sidebar />
-        <main className="flex-1 p-8">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <svg className="w-5 h-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-red-800">{error}</span>
+      <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <div className="flex-1 flex flex-col">
+          <MobileHeader 
+            title="Assignment Overview" 
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          />
+          <main className="flex-1 p-8 mobile-app-content">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-red-800">{error}</span>
+                </div>
+                <button
+                  onClick={() => loadAssignmentStats(true)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
-              <button
-                onClick={() => loadAssignmentStats(true)}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-              >
-                Retry
-              </button>
             </div>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8">
+    <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <div className="flex-1 flex flex-col">
+        <MobileHeader 
+          title="Assignment Overview" 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        />
+        <main className="flex-1 p-8 mobile-app-content">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8 flex justify-between items-center">
             <div>
@@ -318,6 +352,7 @@ export default function AssignmentPage() {
           </div>
         </div>
       </main>
+      </div>
     </div>
   );
 }

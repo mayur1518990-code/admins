@@ -6,7 +6,12 @@
   "/admin/users/page": "app/admin/users/page.js",
   "/api/admin/agents/route": "app/api/admin/agents/route.js",
   "/api/admin/assign/route": "app/api/admin/assign/route.js",
+  "/api/admin/dashboard/route": "app/api/admin/dashboard/route.js",
   "/api/admin/files/route": "app/api/admin/files/route.js",
+  "/api/admin/login/route": "app/api/admin/login/route.js",
+  "/api/admin/logout/route": "app/api/admin/logout/route.js",
   "/api/admin/transactions/route": "app/api/admin/transactions/route.js",
-  "/api/admin/users/route": "app/api/admin/users/route.js"
+  "/api/admin/users/route": "app/api/admin/users/route.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/page": "app/page.js"
 }

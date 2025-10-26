@@ -480,7 +480,8 @@ export default function AgentsPage() {
 
           {/* Agents List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -584,6 +585,77 @@ export default function AgentsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-4 p-4">
+              {filteredAgents.map((agent) => (
+                <div key={`mobile-${agent.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start space-x-3 mb-3">
+                    <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-medium">
+                        {agent.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-medium text-gray-900">
+                        {agent.name}
+                      </h3>
+                      <p className="text-sm text-gray-500">{agent.email}</p>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      agent.isActive 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {agent.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 ml-12 mt-3">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Phone:</span> {agent.phone || 'No phone'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Last login:</span> {agent.lastLoginAt ? formatDate(agent.lastLoginAt) : 'Never'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Files:</span> {agent.stats.completedFiles}/{agent.stats.totalFiles} completed, {agent.stats.pendingFiles} pending
+                    </p>
+                  </div>
+                  
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setEditingAgent(agent)}
+                      className="bg-blue-600 text-white text-xs px-3 py-1 rounded hover:bg-blue-700 flex-1"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleUpdateAgent(agent.id, { isActive: !agent.isActive })}
+                      className={`text-xs px-3 py-1 rounded flex-1 ${
+                        agent.isActive 
+                          ? 'bg-red-600 text-white hover:bg-red-700' 
+                          : 'bg-green-600 text-white hover:bg-green-700'
+                      }`}
+                    >
+                      {agent.isActive ? 'Block' : 'Unblock'}
+                    </button>
+                    <button
+                      onClick={() => setResettingAgent(agent)}
+                      className="bg-yellow-600 text-white text-xs px-3 py-1 rounded hover:bg-yellow-700 flex-1"
+                    >
+                      Update Password
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAgent(agent.id)}
+                      className="bg-red-600 text-white text-xs px-3 py-1 rounded hover:bg-red-700 flex-1"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

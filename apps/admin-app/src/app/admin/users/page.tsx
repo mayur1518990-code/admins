@@ -634,7 +634,8 @@ export default function UsersPage() {
 
           {/* Users List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -671,6 +672,89 @@ export default function UsersPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-4 p-4">
+              {filteredUsers.map((user) => (
+                <div key={`mobile-${user.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start space-x-3 mb-3">
+                    <div className="h-10 w-10 rounded-full bg-gray-500 flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-medium">
+                        {user.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-medium text-gray-900">
+                        {user.name}
+                      </h3>
+                      <p className="text-sm text-gray-500">{user.email}</p>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${ROLE_COLORS[user.role] || ROLE_COLORS.default}`}>
+                      {user.role}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 ml-12 mt-3">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Phone:</span> {user.phone || 'No phone'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Last login:</span> {user.lastLoginAt ? formatDate(user.lastLoginAt) : 'Never'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Status:</span> 
+                      <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${
+                        user.isActive 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {user.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </p>
+                  </div>
+                  
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => {
+                        const userToEdit = users.find(u => u.id === user.id);
+                        if (userToEdit) setEditingUser(userToEdit);
+                      }}
+                      className="bg-blue-600 text-white text-xs px-3 py-1 rounded hover:bg-blue-700 flex-1"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => {
+                        const userToUpdate = users.find(u => u.id === user.id);
+                        if (userToUpdate) handleToggleActive(user.id);
+                      }}
+                      className={`text-xs px-3 py-1 rounded flex-1 ${
+                        user.isActive 
+                          ? 'bg-red-600 text-white hover:bg-red-700' 
+                          : 'bg-green-600 text-white hover:bg-green-700'
+                      }`}
+                    >
+                      {user.isActive ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const userToReset = users.find(u => u.id === user.id);
+                        if (userToReset) setResettingUser(userToReset);
+                      }}
+                      className="bg-yellow-600 text-white text-xs px-3 py-1 rounded hover:bg-yellow-700 flex-1"
+                    >
+                      Reset Password
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user.id)}
+                      className="bg-red-600 text-white text-xs px-3 py-1 rounded hover:bg-red-700 flex-1"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

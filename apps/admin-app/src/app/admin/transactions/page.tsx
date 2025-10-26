@@ -488,7 +488,8 @@ export default function TransactionsPage() {
 
           {/* Transactions List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -583,9 +584,50 @@ export default function TransactionsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
 
-          
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-4 p-4">
+              {transactions.map((transaction) => (
+                <div key={`mobile-${transaction.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start space-x-3 mb-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.includes(transaction.id)}
+                      onChange={() => toggleTransactionSelection(transaction.id)}
+                      className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-medium text-gray-900 truncate">
+                        {transaction.user?.name || 'Unknown User'}
+                      </h3>
+                      <p className="text-xs text-gray-500">{transaction.file?.originalName || 'Unknown File'}</p>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(transaction.status || 'unknown')}`}>
+                      {(transaction.status || 'unknown').toUpperCase()}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1 ml-8 mt-2">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Order ID:</span> {transaction.razorpayOrderId}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Email:</span> {transaction.user?.email || 'No email'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Amount:</span> {formatCurrency(transaction.amount)} {transaction.currency?.toUpperCase() || 'INR'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Date:</span> {transaction.createdAt ? new Date(transaction.createdAt).toLocaleDateString() : 'Unknown'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Payment ID:</span> {transaction.razorpayPaymentId || 'No Payment ID'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {transactions.length === 0 && !isLoading && (
             <div className="bg-white rounded-lg shadow-md p-8 text-center mt-6">

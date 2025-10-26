@@ -481,7 +481,8 @@ export default function LogsPage() {
 
           {/* Logs List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -562,6 +563,47 @@ export default function LogsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-4 p-4">
+              {filteredLogs.map((log) => (
+                <div key={`mobile-${log.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start space-x-3 mb-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      {getActionIcon(log.actionType)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-medium text-gray-900">
+                        {(log.actionType || 'unknown').replace('_', ' ').toUpperCase()}
+                      </h3>
+                      <p className="text-xs text-gray-500">{log.actor?.name || 'Unknown Actor'}</p>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getActorColor(log.actorType || 'unknown')}`}>
+                      {(log.actorType || 'unknown').toUpperCase()}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1 ml-12 mt-2">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Email:</span> {log.actor?.email || 'No email'}
+                    </p>
+                    {log.targetUser && (
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">Target:</span> {log.targetUser.name} ({log.targetUser.email})
+                      </p>
+                    )}
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Time:</span> {new Date(log.timestamp).toLocaleString()}
+                    </p>
+                    {log.ipAddress && (
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">IP:</span> {log.ipAddress}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

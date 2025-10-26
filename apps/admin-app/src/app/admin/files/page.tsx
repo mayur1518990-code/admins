@@ -726,7 +726,8 @@ export default function FilesPage() {
 
           {/* Files List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -877,9 +878,87 @@ export default function FilesPage() {
                 </tbody>
               </table>
             </div>
-          </div>
 
-          
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-4 p-4">
+              {filteredFiles.map((file) => (
+                <div key={`mobile-${file.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start space-x-3 mb-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedFiles.includes(file.id)}
+                      onChange={() => toggleFileSelection(file.id)}
+                      className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start space-x-2 mb-2">
+                        <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-medium text-gray-900 truncate">
+                            {file.originalName || file.filename || 'Unknown File'}
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            {formatFileSize(file.size || 0)} • {file.mimeType || 'Unknown'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1 ml-10">
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">User:</span> {file.user?.name || 'Unknown'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Email:</span> {file.user?.email || 'No email'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Agent:</span> {file.agent ? file.agent.name : 'Unassigned'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Upload:</span> {file.uploadedAt ? formatDate(file.uploadedAt).date : 'Unknown'}
+                        </p>
+                        <div className="mt-2">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(file.status || 'unknown')}`}>
+                            {(file.status || 'unknown').replace('_', ' ').toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(file.status || 'unknown') === 'paid' && (
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value === 'none') {
+                                handleUnassignFile(file.id, false);
+                              } else {
+                                handleAssignFile(file.id, e.target.value);
+                              }
+                            }}
+                            value={file.agent?.id || 'none'}
+                            className="text-xs border border-gray-300 rounded px-2 py-1"
+                          >
+                            <option value="none">Unassign</option>
+                            {agents.filter(a => a.isActive).map(agent => (
+                              <option key={agent.id} value={agent.id}>{agent.name}</option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          onClick={() => handleDeleteFile(file.id)}
+                          className="bg-red-600 text-white text-xs px-3 py-1 rounded hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {filteredFiles.length === 0 && (
             <div className="bg-white rounded-lg shadow-md p-8 text-center">

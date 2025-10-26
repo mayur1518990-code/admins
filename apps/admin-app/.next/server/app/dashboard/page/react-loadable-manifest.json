@@ -3,28 +3,28 @@
     "id": "[project]/apps/admin-app/src/components/DashboardStats.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
       "static/chunks/apps_admin-app_src_components_DashboardStats_tsx_2eba60e3._.js",
-      "static/chunks/apps_admin-app_src_components_DashboardStats_tsx_a0246197._.js"
+      "static/chunks/apps_admin-app_src_components_DashboardStats_tsx_acbf0d41._.js"
     ]
   },
   "[project]/apps/admin-app/src/components/QuickActions.tsx [app-client] (ecmascript, next/dynamic entry)": {
     "id": "[project]/apps/admin-app/src/components/QuickActions.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
       "static/chunks/_4a4cb1b5._.js",
-      "static/chunks/apps_admin-app_src_components_QuickActions_tsx_a0246197._.js"
+      "static/chunks/apps_admin-app_src_components_QuickActions_tsx_acbf0d41._.js"
     ]
   },
   "[project]/apps/admin-app/src/components/RecentActivity.tsx [app-client] (ecmascript, next/dynamic entry)": {
     "id": "[project]/apps/admin-app/src/components/RecentActivity.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
       "static/chunks/apps_admin-app_src_components_RecentActivity_tsx_19948933._.js",
-      "static/chunks/apps_admin-app_src_components_RecentActivity_tsx_a0246197._.js"
+      "static/chunks/apps_admin-app_src_components_RecentActivity_tsx_acbf0d41._.js"
     ]
   },
   "[project]/apps/admin-app/src/components/AdminSidebar.tsx [app-client] (ecmascript, next/dynamic entry)": {
     "id": "[project]/apps/admin-app/src/components/AdminSidebar.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
       "static/chunks/apps_admin-app_src_components_AdminSidebar_tsx_f760599a._.js",
-      "static/chunks/apps_admin-app_src_components_AdminSidebar_tsx_a0246197._.js"
+      "static/chunks/apps_admin-app_src_components_AdminSidebar_tsx_acbf0d41._.js"
     ]
   }
 }

@@ -536,56 +536,58 @@ export default function AgentDashboard() {
               </p>
           </div>
           ) : (
-            <div className="divide-y divide-gray-200">
-              {filteredFiles.map((file) => (
-                <div key={file.id} className="p-6 hover:bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-4">
-                        <div className="flex-shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={selectedFiles.includes(file.id)}
-                            onChange={() => toggleFileSelection(file.id)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                          />
-                        </div>
-                        <div className="flex-shrink-0">
-                          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
+            <>
+              {/* Desktop: Horizontal Layout */}
+              <div className="hidden md:block divide-y divide-gray-200">
+                {filteredFiles.map((file) => (
+                  <div key={file.id} className="p-6 hover:bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-4">
+                          <div className="flex-shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={selectedFiles.includes(file.id)}
+                              onChange={() => toggleFileSelection(file.id)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
                           </div>
-                        </div>
-                        
-                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleFileSelection(file.id)}>
-                          <h3 className="text-lg font-medium text-gray-900 truncate">
-                            {file.originalName}
-                          </h3>
-                          <div className="flex items-center space-x-4 mt-1">
-                            <p className="text-sm text-gray-500">
-                              Size: {formatFileSize(file.size)}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              Assigned: {new Date(file.assignedAt).toLocaleDateString()}
-                            </p>
-                            {file.userEmail && (
+                          <div className="flex-shrink-0">
+                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            </div>
+                          </div>
+                          
+                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleFileSelection(file.id)}>
+                            <h3 className="text-lg font-medium text-gray-900 truncate">
+                              {file.originalName}
+                            </h3>
+                            <div className="flex items-center space-x-4 mt-1">
                               <p className="text-sm text-gray-500">
-                                User: {file.userEmail}
+                                Size: {formatFileSize(file.size)}
                               </p>
-                            )}
+                              <p className="text-sm text-gray-500">
+                                Assigned: {new Date(file.assignedAt).toLocaleDateString()}
+                              </p>
+                              {file.userEmail && (
+                                <p className="text-sm text-gray-500">
+                                  User: {file.userEmail}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-3">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
-                            {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
-                          </span>
+                          
+                          <div className="flex items-center space-x-3">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
+                              {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 ml-4">
+                      
+                      <div className="flex items-center space-x-2 ml-4">
                       {(file.status === 'assigned' || file.status === 'paid') && (
                         <>
                           <button
@@ -634,6 +636,94 @@ export default function AgentDashboard() {
                 </div>
               ))}
             </div>
+
+              {/* Mobile: Vertical Card Layout */}
+              <div className="md:hidden space-y-4 px-4 pb-4">
+                {filteredFiles.map((file) => (
+                  <div key={`mobile-${file.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="flex items-start space-x-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.includes(file.id)}
+                        onChange={() => toggleFileSelection(file.id)}
+                        className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                              </div>
+                              <h3 className="text-base font-medium text-gray-900 truncate">
+                                {file.originalName}
+                              </h3>
+                            </div>
+                            
+                            <div className="space-y-1 ml-10">
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Size:</span> {formatFileSize(file.size)}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Assigned:</span> {new Date(file.assignedAt).toLocaleDateString()}
+                              </p>
+                              {file.userEmail && (
+                                <p className="text-sm text-gray-600">
+                                  <span className="font-medium">User:</span> {file.userEmail}
+                                </p>
+                              )}
+                              <div className="mt-2">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
+                                  {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(file.status === 'assigned' || file.status === 'paid') && (
+                            <>
+                              <button
+                                onClick={() => downloadOriginalFile(file.id, file.originalName)}
+                                disabled={updatingStatus === file.id}
+                                className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+                              >
+                                Download
+                              </button>
+                              <button
+                                onClick={() => updateFileStatus(file.id, 'processing')}
+                                disabled={updatingStatus === file.id}
+                                className="bg-yellow-600 text-white px-3 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+                              >
+                                {updatingStatus === file.id ? 'Processing...' : 'Start Processing'}
+                              </button>
+                            </>
+                          )}
+                          
+                          {file.status === 'processing' && (
+                            <button
+                              onClick={() => setSelectedFile(file)}
+                              className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
+                            >
+                              Upload Completed
+                            </button>
+                          )}
+                          
+                          {file.status === 'completed' && file.completedFile && (
+                            <div className="text-xs text-gray-500 w-full mt-2">
+                              Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

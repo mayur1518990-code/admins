@@ -46,6 +46,8 @@ export default function AgentDashboard() {
   const [uploading, setUploading] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'assigned' | 'processing' | 'completed' | 'paid'>('all');
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   // OPTIMIZATION: Add client-side caching with useCallback
   const fetchAssignedFiles = useCallback(async (forceRefresh = false) => {
@@ -96,6 +98,11 @@ export default function AgentDashboard() {
   useEffect(() => {
     fetchAssignedFiles();
   }, [fetchAssignedFiles]);
+
+  // Clear selections when filter changes
+  useEffect(() => {
+    setSelectedFiles([]);
+  }, [statusFilter]);
 
   const handleLogout = async () => {
     try {
@@ -256,6 +263,64 @@ export default function AgentDashboard() {
     if (statusFilter === 'assigned') return file.status === 'assigned' || file.status === 'paid';
     return file.status === statusFilter;
   });
+
+  // Checkbox handlers
+  const toggleFileSelection = (fileId: string) => {
+    setSelectedFiles(prev => 
+      prev.includes(fileId) 
+        ? prev.filter(id => id !== fileId)
+        : [...prev, fileId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedFiles.length === filteredFiles.length) {
+      setSelectedFiles([]);
+    } else {
+      setSelectedFiles(filteredFiles.map(f => f.id));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedFiles.length === 0) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedFiles.length} file(s)? This action cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    setDeleting(true);
+    try {
+      const response = await fetch('/api/agent/files', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fileIds: selectedFiles }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Remove deleted files from state
+        setFiles(prev => prev.filter(file => !selectedFiles.includes(file.id)));
+        calculateStats(files.filter(file => !selectedFiles.includes(file.id)));
+        setSelectedFiles([]);
+        alert(`${selectedFiles.length} file(s) deleted successfully!`);
+        
+        // Clear cache and refresh
+        await fetchAssignedFiles(true);
+      } else {
+        alert(`Failed to delete files: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error deleting files:', error);
+      alert('Error deleting files. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -418,7 +483,43 @@ export default function AgentDashboard() {
         {/* Files List */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Assigned Files</h2>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={filteredFiles.length > 0 && selectedFiles.length === filteredFiles.length}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Assigned Files {selectedFiles.length > 0 && `(${selectedFiles.length} selected)`}
+                </h2>
+              </div>
+              {selectedFiles.length > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={deleting}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {deleting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      <span>Delete Selected ({selectedFiles.length})</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           
           {filteredFiles.length === 0 ? (
@@ -442,6 +543,14 @@ export default function AgentDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center space-x-4">
                         <div className="flex-shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedFiles.includes(file.id)}
+                            onChange={() => toggleFileSelection(file.id)}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                        </div>
+                        <div className="flex-shrink-0">
                           <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                             <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -449,7 +558,7 @@ export default function AgentDashboard() {
                           </div>
                         </div>
                         
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleFileSelection(file.id)}>
                           <h3 className="text-lg font-medium text-gray-900 truncate">
                             {file.originalName}
                           </h3>

@@ -4,6 +4,70 @@ import { verifyAgentAuth } from '@/lib/agent-auth';
 import { findAgentFiles } from '@/lib/agent-utils';
 import { serverCache, makeKey } from '@/lib/server-cache';
 
+// DELETE method for deleting multiple files
+export async function DELETE(request: NextRequest) {
+  try {
+    // Verify agent authentication
+    const agent = await verifyAgentAuth();
+    if (!agent) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { fileIds } = body;
+
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No files selected for deletion' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[AGENT-DELETE] Agent ${agent.agentId} attempting to delete ${fileIds.length} files`);
+
+    // Verify that all files belong to this agent
+    const agentFiles = await findAgentFiles(agent.agentId);
+    const agentFileIds = agentFiles.map(f => f.id);
+    
+    const unauthorizedFiles = fileIds.filter(id => !agentFileIds.includes(id));
+    if (unauthorizedFiles.length > 0) {
+      return NextResponse.json(
+        { success: false, error: 'Some files do not belong to this agent' },
+        { status: 403 }
+      );
+    }
+
+    // Delete files from database
+    const batch = adminDb.batch();
+    let deletedCount = 0;
+
+    for (const fileId of fileIds) {
+      const fileRef = adminDb.collection('files').doc(fileId);
+      batch.delete(fileRef);
+      deletedCount++;
+    }
+
+    await batch.commit();
+    console.log(`[AGENT-DELETE] Successfully deleted ${deletedCount} files`);
+
+    // Clear cache
+    const cacheKey = makeKey('agent-files', [agent.agentId]);
+    serverCache.delete(cacheKey);
+
+    return NextResponse.json({
+      success: true,
+      message: `Successfully deleted ${deletedCount} file(s)`
+    });
+
+  } catch (error: any) {
+    console.error('Error deleting files:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to delete files' },
+      { status: 500 }
+    );
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Verify agent authentication

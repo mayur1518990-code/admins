@@ -5,6 +5,7 @@ const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Si
 const DashboardStats = dynamic(() => import("@/components/DashboardStats").then(m => m.DashboardStats));
 const RecentActivity = dynamic(() => import("@/components/RecentActivity").then(m => m.RecentActivity));
 const QuickActions = dynamic(() => import("@/components/QuickActions").then(m => m.QuickActions));
+import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { getCached, setCached, getCacheKey, isFresh } from "@/lib/cache";
 
@@ -78,6 +79,23 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [period, setPeriod] = useState('30d');
+  
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      console.log('Dashboard - Mobile check:', mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     // Check if user is authenticated
@@ -162,14 +180,22 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="mobile-app-container bg-gray-50 flex">
-      <Sidebar />
-      <main className="flex-1 p-6 mobile-app-content">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">
-              Admin Dashboard
-            </h1>
+    <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <div className="flex-1 flex flex-col">
+        <MobileHeader 
+          title="Admin Dashboard" 
+          onMenuClick={() => {
+            console.log('Dashboard - Mobile header clicked, current sidebar state:', sidebarOpen);
+            setSidebarOpen(!sidebarOpen);
+          }} 
+        />
+        <main className="flex-1 p-6 mobile-app-content">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-3xl font-bold text-gray-900 hidden md:block">
+                Admin Dashboard
+              </h1>
             <div className="flex space-x-2">
               {['7d', '30d', '90d'].map((p) => (
                 <button
@@ -202,8 +228,9 @@ export default function AdminDashboard() {
               </div>
             </>
           )}
-        </div>
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

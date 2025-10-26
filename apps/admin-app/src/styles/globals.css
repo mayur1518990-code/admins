@@ -41,6 +41,17 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+  
+  /* Mobile layout adjustments */
+  .mobile-app-container {
+    height: 100vh;
+    height: 100dvh;
+  }
+  
+  .mobile-app-content {
+    height: calc(100vh - 60px); /* Account for mobile header */
+    height: calc(100dvh - 60px);
+  }
 }
 
 /* Fix for mobile app containers */

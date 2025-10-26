@@ -1,10 +1,52 @@
 "use client";
 
-export function Sidebar() {
+import { useState, useEffect } from 'react';
+
+interface SidebarProps {
+  sidebarOpen?: boolean;
+  setSidebarOpen?: (open: boolean) => void;
+}
+
+export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: externalSetSidebarOpen }: SidebarProps = {}) {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : "";
   const userRole: 'admin' | 'agent' | null = typeof document !== 'undefined'
     ? (document.cookie.includes('admin-token') ? 'admin' : document.cookie.includes('agent-token') ? 'agent' : null)
     : null;
+  
+  const [isMobile, setIsMobile] = useState(false);
+  const [internalSidebarOpen, setInternalSidebarOpen] = useState(false);
+  
+  // Use external state if provided, otherwise use internal state
+  const sidebarOpen = externalSidebarOpen !== undefined ? externalSidebarOpen : internalSidebarOpen;
+  const setSidebarOpen = externalSetSidebarOpen || setInternalSidebarOpen;
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    if (sidebarOpen && isMobile) {
+      const handleClickOutside = (event: MouseEvent) => {
+        const sidebar = document.getElementById('sidebar');
+        const hamburger = document.getElementById('hamburger-menu');
+        if (sidebar && !sidebar.contains(event.target as Node) && 
+            hamburger && !hamburger.contains(event.target as Node)) {
+          setSidebarOpen(false);
+        }
+      };
+      
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [sidebarOpen, isMobile]);
 
   const isActive = (path: string) => pathname === path;
 
@@ -57,7 +99,24 @@ export function Sidebar() {
   }
 
   return (
-    <div className="w-64 bg-white shadow-sm border-r h-screen flex-shrink-0">
+    <>
+      {/* Mobile Overlay */}
+      {isMobile && sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      
+      {/* Sidebar */}
+      <div 
+        id="sidebar"
+        className={`bg-white shadow-sm border-r h-screen flex-shrink-0 transition-transform duration-300 ease-in-out ${
+          isMobile 
+            ? `fixed left-0 top-0 w-64 z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+            : 'w-64'
+        }`}
+      >
       <div className="p-6">
         <h2 className="text-xl font-bold text-gray-900">{portalTitle}</h2>
         <p className="text-sm text-gray-500 mt-1">{portalSubtitle}</p>
@@ -84,6 +143,11 @@ export function Sidebar() {
             <a
               key={item.name}
               href={item.href}
+              onClick={() => {
+                if (isMobile) {
+                  setSidebarOpen(false);
+                }
+              }}
               className={`flex items-center px-6 py-3 text-sm font-medium transition-colors ${
                 isActive(item.href) 
                   ? "bg-blue-50 text-blue-700 border-r-2 border-blue-700" 
@@ -107,8 +171,27 @@ export function Sidebar() {
           </button>
         </div>
       </nav>
-    </div>
+      </div>
+    </>
   );
+}
+
+// Export the sidebar state and toggle function for use in other components
+export function useSidebar() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  return { sidebarOpen, setSidebarOpen, isMobile };
 }
 
 

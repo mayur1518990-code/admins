@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { getCached, setCached, isFresh, getCacheKey, deleteCached } from "@/lib/cache";
 
@@ -173,6 +174,21 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<"all" | "user" | "agent" | "admin">("all");
   const [searchTerm, setSearchTerm] = useState("");
   const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search by 300ms
+  
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   
   const [formData, setFormData] = useState<UserFormData>({
     name: "",
@@ -473,9 +489,14 @@ export default function UsersPage() {
 
   if (isLoading) {
     return (
-      <div className="mobile-app-container bg-gray-50 flex">
-        <Sidebar />
-        <main className="flex-1 p-6 mobile-app-content">
+      <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <div className="flex-1 flex flex-col">
+          <MobileHeader 
+            title="User Management" 
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          />
+          <main className="flex-1 p-6 mobile-app-content">
           <div className="max-w-7xl mx-auto">
             <div className="animate-pulse">
               <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
@@ -488,27 +509,33 @@ export default function UsersPage() {
               </div>
             </div>
           </div>
-        </main>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mobile-app-container bg-gray-50 flex">
-      <Sidebar />
-      <main className="flex-1 p-6 mobile-app-content">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">
-              User Management
-            </h1>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Add New User
-            </button>
-          </div>
+    <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <div className="flex-1 flex flex-col">
+        <MobileHeader 
+          title="User Management" 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        />
+        <main className="flex-1 p-6 mobile-app-content">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-3xl font-bold text-gray-900 hidden md:block">
+                User Management
+              </h1>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Add New User
+              </button>
+            </div>
 
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
@@ -647,8 +674,9 @@ export default function UsersPage() {
               </button>
             </div>
           )}
-        </div>
-      </main>
+          </div>
+        </main>
+      </div>
 
       {/* Add User Modal */}
       {showAddModal && (

@@ -584,9 +584,9 @@ export default function FilesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="mobile-app-container bg-gray-50 flex">
       <Sidebar />
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-6 mobile-app-content">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <div>

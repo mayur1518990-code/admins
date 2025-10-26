@@ -47,7 +47,7 @@ export function Sidebar() {
 
   if (!userRole) {
     return (
-      <div className="w-64 bg-white shadow-sm border-r h-screen flex items-center justify-center">
+      <div className="w-64 bg-white shadow-sm border-r h-screen flex items-center justify-center flex-shrink-0">
         <div className="text-center">
           <div className="text-gray-400 text-4xl mb-4">🔒</div>
           <p className="text-gray-600">Please log in</p>
@@ -57,7 +57,7 @@ export function Sidebar() {
   }
 
   return (
-    <div className="w-64 bg-white shadow-sm border-r h-screen">
+    <div className="w-64 bg-white shadow-sm border-r h-screen flex-shrink-0">
       <div className="p-6">
         <h2 className="text-xl font-bold text-gray-900">{portalTitle}</h2>
         <p className="text-sm text-gray-500 mt-1">{portalSubtitle}</p>

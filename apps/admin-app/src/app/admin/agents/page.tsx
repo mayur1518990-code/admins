@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from "@/lib/cache";
 
@@ -74,6 +75,23 @@ export default function AgentsPage() {
     password: "",
     phone: ""
   });
+  
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      console.log('Agents page - Mobile check:', mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     loadAgents();
@@ -355,9 +373,14 @@ export default function AgentsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
+      <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <div className="flex-1 flex flex-col">
+          <MobileHeader 
+            title="Agent Management" 
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          />
+          <main className="flex-1 p-6 mobile-app-content">
           <div className="max-w-7xl mx-auto">
             <div className="animate-pulse">
               <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
@@ -370,15 +393,21 @@ export default function AgentsPage() {
               </div>
             </div>
           </div>
-        </main>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar />
-      <main className="flex-1 p-6">
+    <div className="mobile-app-container bg-gray-50 flex flex-col md:flex-row">
+      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <div className="flex-1 flex flex-col">
+        <MobileHeader 
+          title="Agent Management" 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        />
+        <main className="flex-1 p-6 mobile-app-content">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-900">
@@ -576,7 +605,8 @@ export default function AgentsPage() {
             </div>
           )}
         </div>
-      </main>
+        </main>
+      </div>
 
       {/* Add Agent Modal */}
       {showAddModal && (

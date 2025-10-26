@@ -26,7 +26,10 @@ export function MobileHeader({ title, onMenuClick }: MobileHeaderProps) {
     <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
       <button
         id="hamburger-menu"
-        onClick={onMenuClick}
+        onClick={() => {
+          console.log('Hamburger menu clicked');
+          onMenuClick();
+        }}
         className="p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
         aria-label="Open sidebar"
       >

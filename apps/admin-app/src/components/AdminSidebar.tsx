@@ -23,13 +23,15 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
   // Check if device is mobile
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      console.log('Mobile check:', mobile, 'Sidebar open:', sidebarOpen);
     };
     
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [sidebarOpen]);
 
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
@@ -98,6 +100,9 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
     );
   }
 
+  // Always show sidebar on desktop, only hide on mobile when closed
+  const shouldShowSidebar = !isMobile || sidebarOpen;
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -109,14 +114,18 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
       )}
       
       {/* Sidebar */}
-      <div 
-        id="sidebar"
-        className={`bg-white shadow-sm border-r h-screen flex-shrink-0 transition-transform duration-300 ease-in-out ${
-          isMobile 
-            ? `fixed left-0 top-0 w-64 z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
-            : 'w-64'
-        }`}
-      >
+      {shouldShowSidebar && (
+        <div 
+          id="sidebar"
+          className={`bg-white shadow-sm border-r h-screen flex-shrink-0 ${
+            isMobile 
+              ? `fixed left-0 top-0 w-64 z-50 transition-transform duration-300 ease-in-out`
+              : 'w-64 relative'
+          }`}
+          style={{
+            transform: isMobile ? (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)') : 'none'
+          }}
+        >
       <div className="p-6">
         <h2 className="text-xl font-bold text-gray-900">{portalTitle}</h2>
         <p className="text-sm text-gray-500 mt-1">{portalSubtitle}</p>
@@ -171,7 +180,8 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
           </button>
         </div>
       </nav>
-      </div>
+        </div>
+      )}
     </>
   );
 }

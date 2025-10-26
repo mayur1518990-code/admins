@@ -182,7 +182,9 @@ export default function UsersPage() {
   // Check if device is mobile
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      console.log('Users page - Mobile check:', mobile);
     };
     
     checkMobile();
@@ -521,7 +523,10 @@ export default function UsersPage() {
       <div className="flex-1 flex flex-col">
         <MobileHeader 
           title="User Management" 
-          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+          onMenuClick={() => {
+            console.log('Mobile header clicked, current sidebar state:', sidebarOpen);
+            setSidebarOpen(!sidebarOpen);
+          }} 
         />
         <main className="flex-1 p-6 mobile-app-content">
           <div className="max-w-7xl mx-auto">
@@ -529,12 +534,24 @@ export default function UsersPage() {
               <h1 className="text-3xl font-bold text-gray-900 hidden md:block">
                 User Management
               </h1>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Add New User
-              </button>
+              <div className="flex gap-2">
+                {/* Debug button - remove this later */}
+                <button
+                  onClick={() => {
+                    console.log('Debug: Toggling sidebar, current state:', sidebarOpen);
+                    setSidebarOpen(!sidebarOpen);
+                  }}
+                  className="bg-red-600 text-white px-2 py-1 rounded text-sm"
+                >
+                  Toggle Sidebar
+                </button>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add New User
+                </button>
+              </div>
             </div>
 
           {error && (

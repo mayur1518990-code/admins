@@ -229,7 +229,11 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
                 <RecentActivity activities={dashboardData.activity.recent.map(a => ({ 
                   ...a, 
-                  timestamp: a.timestamp?.toDate ? a.timestamp.toDate().toISOString() : (typeof a.timestamp === 'string' ? a.timestamp : new Date(a.timestamp).toISOString())
+                  timestamp: typeof a.timestamp === 'string' 
+                    ? a.timestamp 
+                    : (a.timestamp as any)?.toDate 
+                      ? (a.timestamp as any).toDate().toISOString() 
+                      : new Date(a.timestamp).toISOString()
                 }))} />
                 <QuickActions />
               </div>

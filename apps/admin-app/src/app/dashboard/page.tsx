@@ -1,10 +1,13 @@
 "use client";
 
-import dynamic from "next/dynamic";
-const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
-const DashboardStats = dynamic(() => import("@/components/DashboardStats").then(m => m.DashboardStats));
-const RecentActivity = dynamic(() => import("@/components/RecentActivity").then(m => m.RecentActivity));
-const QuickActions = dynamic(() => import("@/components/QuickActions").then(m => m.QuickActions));
+// Force dynamic rendering for authenticated pages
+export const dynamic = 'force-dynamic';
+
+import dynamicImport from "next/dynamic";
+const Sidebar = dynamicImport(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+const DashboardStats = dynamicImport(() => import("@/components/DashboardStats").then(m => m.DashboardStats));
+const RecentActivity = dynamicImport(() => import("@/components/RecentActivity").then(m => m.RecentActivity));
+const QuickActions = dynamicImport(() => import("@/components/QuickActions").then(m => m.QuickActions));
 import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { getCached, setCached, getCacheKey, isFresh } from "@/lib/cache";

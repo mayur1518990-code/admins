@@ -1,7 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
-const Sidebar = dynamic(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
+// Force dynamic rendering for authenticated pages
+export const dynamic = 'force-dynamic';
+
+import dynamicImport from "next/dynamic";
+const Sidebar = dynamicImport(() => import("@/components/AdminSidebar").then(m => m.Sidebar), { ssr: false });
 import { MobileHeader } from "@/components/MobileHeader";
 import { useState, useEffect } from "react";
 

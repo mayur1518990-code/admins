@@ -1,5 +1,8 @@
 'use client';
 
+// Force dynamic rendering for authenticated pages
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from '@/lib/cache';

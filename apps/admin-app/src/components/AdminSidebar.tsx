@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 
 interface SidebarProps {
   sidebarOpen?: boolean;
   setSidebarOpen?: (open: boolean) => void;
 }
 
-export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: externalSetSidebarOpen }: SidebarProps = {}) {
+export const Sidebar = memo(function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: externalSetSidebarOpen }: SidebarProps = {}) {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : "";
   const userRole: 'admin' | 'agent' | null = typeof document !== 'undefined'
     ? (document.cookie.includes('admin-token') ? 'admin' : document.cookie.includes('agent-token') ? 'agent' : null)
@@ -25,7 +25,6 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      console.log('Mobile check:', mobile, 'Sidebar open:', sidebarOpen);
     };
     
     checkMobile();
@@ -75,6 +74,7 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
     { name: "File Management", href: "/admin/files", icon: "📁" },
     { name: "Assignment", href: "/admin/assign", icon: "🔗" },
     { name: "Transactions", href: "/admin/transactions", icon: "💳" },
+    { name: "Alerts", href: "/admin/alerts", icon: "🔔" },
     { name: "Audit Logs", href: "/admin/logs", icon: "📋" },
     { name: "System Settings", href: "/admin/settings", icon: "⚙️" },
   ];
@@ -184,7 +184,7 @@ export function Sidebar({ sidebarOpen: externalSidebarOpen, setSidebarOpen: exte
       )}
     </>
   );
-}
+});
 
 // Export the sidebar state and toggle function for use in other components
 export function useSidebar() {

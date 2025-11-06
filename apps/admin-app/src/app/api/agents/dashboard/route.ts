@@ -103,6 +103,13 @@ export async function GET(request: NextRequest) {
     const totalReplies = completedFiles;
     const completionRate = totalFiles > 0 ? ((completedFiles / totalFiles) * 100).toFixed(2) : 0;
 
+    // Build file status breakdown
+    const filesByStatus: Record<string, number> = {
+      paid: paidCount,
+      processing: processingCount,
+      completed: completedCount
+    };
+
     const response = {
       success: true,
       period,

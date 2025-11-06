@@ -12,12 +12,16 @@ function UnifiedLoginForm() {
   const [error, setError] = useState("");
   const router = useRouter();
 
+  // OPTIMIZED: Add request timeout and improved error handling
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       if (loginMode === 'admin') {
         const response = await fetch('/api/admin/login', {
           method: 'POST',
@@ -25,8 +29,10 @@ function UnifiedLoginForm() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ email, password }),
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
         const result = await response.json();
 
         if (result.success) {
@@ -49,8 +55,10 @@ function UnifiedLoginForm() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ email, password }),
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
         const result = await response.json();
 
         if (result.success) {
@@ -67,7 +75,11 @@ function UnifiedLoginForm() {
         }
       }
     } catch (error: any) {
-      setError(error.message || "Login failed");
+      if (error.name === 'AbortError') {
+        setError("Login timed out. Please try again.");
+      } else {
+        setError(error.message || "Login failed");
+      }
     } finally {
       setIsLoading(false);
     }

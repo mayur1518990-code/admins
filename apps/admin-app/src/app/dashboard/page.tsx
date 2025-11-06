@@ -89,7 +89,6 @@ export default function AdminDashboard() {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      console.log('Dashboard - Mobile check:', mobile);
     };
     
     checkMobile();
@@ -113,11 +112,11 @@ export default function AdminDashboard() {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     try {
-      setIsLoading(true);
-      
-      // Check cache first (2-minute TTL for consistency with backend)
-      const ttlMs = 2 * 60 * 1000; // 2 minutes
+      // OPTIMIZED: Don't show full-screen loading if we have cached data
+      const ttlMs = 2 * 60 * 1000; // 2 minutes (matching server cache)
       const cacheKey = getCacheKey(['admin-dashboard', period]);
+      
+      // Check cache FIRST before showing loading
       if (!forceRefresh) {
         const cached = getCached<DashboardData>(cacheKey);
         if (isFresh(cached, ttlMs)) {
@@ -128,9 +127,14 @@ export default function AdminDashboard() {
           return; // Return from cache, no API call!
         }
       }
+      
+      // Only show loading if no cached data
+      if (!dashboardData) {
+        setIsLoading(true);
+      }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Reduced from 20s to 15s
       const response = await fetch(`/api/admin/dashboard?period=${period}`, { signal: controller.signal });
       const result = await response.json();
       
@@ -169,7 +173,7 @@ export default function AdminDashboard() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Error Loading Dashboard</h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <button 
-            onClick={loadDashboardData}
+            onClick={() => loadDashboardData()}
             className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
           >
             Retry
@@ -185,10 +189,7 @@ export default function AdminDashboard() {
       <div className="flex-1 flex flex-col">
         <MobileHeader 
           title="Admin Dashboard" 
-          onMenuClick={() => {
-            console.log('Dashboard - Mobile header clicked, current sidebar state:', sidebarOpen);
-            setSidebarOpen(!sidebarOpen);
-          }} 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
         />
         <main className="flex-1 p-6 mobile-app-content">
           <div className="max-w-7xl mx-auto">
@@ -223,7 +224,7 @@ export default function AdminDashboard() {
             <>
               <DashboardStats data={dashboardData} />
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-                <RecentActivity activities={dashboardData.activity.recent} />
+                <RecentActivity activities={dashboardData.activity.recent.map(a => ({ ...a, timestamp: a.timestamp.toISOString() }))} />
                 <QuickActions />
               </div>
             </>

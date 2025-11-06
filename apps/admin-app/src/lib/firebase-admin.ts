@@ -1,7 +1,6 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
 
 // Initialize Firebase Admin
 // Handle both true multiline and "\n"-escaped private keys
@@ -21,8 +20,9 @@ const firebaseAdminConfig = {
 const adminApp = getApps().length === 0 ? initializeApp(firebaseAdminConfig) : getApps()[0];
 
 // Initialize Firebase Admin services
+// Note: Firebase Storage has been replaced with Backblaze B2
+// All file operations now use the b2-storage utility
 export const adminAuth = getAuth(adminApp);
 export const adminDb = getFirestore(adminApp);
-export const adminStorage = getStorage(adminApp);
 
 export default adminApp;

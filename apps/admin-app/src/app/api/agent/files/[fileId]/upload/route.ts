@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { verifyAgentAuth } from '@/lib/agent-auth';
 import { serverCache, makeKey } from '@/lib/server-cache';
+import { uploadToB2 } from '@/lib/b2-storage';
 
 export async function POST(
   request: NextRequest,
@@ -63,19 +64,27 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Generate unique filename for completed file
+    // Generate unique filename for completed file with organized folder structure
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 15);
     const extension = file.name.split('.').pop() || '';
     const completedFilename = `completed_${timestamp}_${randomString}.${extension}`;
-    const completedFilePath = `completed/${fileId}/${completedFilename}`;
+    
+    // Organize in B2: agent-uploads/{agentId}/{fileId}/{filename}
+    const completedFilePath = `agent-uploads/${agent.agentId}/${fileId}/${completedFilename}`;
 
     try {
-      // Convert file to buffer and then to base64 for database storage
+      // Convert file to buffer for B2 upload
       const buffer = Buffer.from(await file.arrayBuffer());
-      const fileContent = buffer.toString('base64');
 
-      // Create completed file document with content stored in database
+      // Upload file to Backblaze B2
+      const uploadResult = await uploadToB2(completedFilePath, buffer, {
+        contentType: file.type,
+        originalName: file.name,
+        uploadedBy: agent.agentId,
+      });
+
+      // Create completed file document with B2 metadata
       const completedFileData = {
         fileId,
         agentId: agent.agentId,
@@ -84,7 +93,8 @@ export async function POST(
         originalName: file.name,
         size: file.size,
         mimeType: file.type,
-        fileContent: fileContent, // Store file content in database
+        b2Key: uploadResult.key, // Store B2 key for retrieval
+        b2Url: uploadResult.url, // Store B2 URL for reference
         uploadedAt: new Date(),
         createdAt: new Date()
       };
@@ -117,7 +127,14 @@ export async function POST(
       ]);
       // Invalidate server-side cache so fresh data is returned
       const agentFilesCacheKey = makeKey('agent-files', [agent.agentId]);
+      const agentDashboardKey = makeKey('agent-dashboard', [agent.agentId, '30d']);
+      const agentDashboard7dKey = makeKey('agent-dashboard', [agent.agentId, '7d']);
+      const agentDashboard90dKey = makeKey('agent-dashboard', [agent.agentId, '90d']);
+      
       serverCache.delete(agentFilesCacheKey);
+      serverCache.delete(agentDashboardKey);
+      serverCache.delete(agentDashboard7dKey);
+      serverCache.delete(agentDashboard90dKey);
 
       return NextResponse.json({
         success: true,

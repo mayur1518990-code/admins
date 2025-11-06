@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminStorage } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { cookies } from "next/headers";
 import { serverCache } from "@/lib/server-cache";
+import { uploadToB2 } from "@/lib/b2-storage";
 
 // Helper function to verify agent authentication
 async function verifyAgentAuth() {
@@ -97,25 +98,17 @@ export async function POST(request: NextRequest) {
       const fileName = `response_${timestamp}_${randomString}.${fileExtension}`;
       const filePath = `agent-responses/${agent.agentId}/${fileName}`;
 
-      // Upload to Firebase Storage
-      const bucket = adminStorage.bucket();
-      const file = bucket.file(filePath);
-
+      // Upload to Backblaze B2
       const buffer = Buffer.from(await responseFile.arrayBuffer());
-      await file.save(buffer, {
-        metadata: {
-          contentType: responseFile.type,
-          metadata: {
-            originalName: responseFile.name,
-            uploadedBy: agent.agentId,
-            fileId: fileId
-          }
-        }
+      const uploadResult = await uploadToB2(filePath, buffer, {
+        contentType: responseFile.type,
+        originalName: responseFile.name,
+        uploadedBy: agent.agentId,
+        fileId: fileId
       });
 
-      // Make file publicly accessible
-      await file.makePublic();
-      responseFileURL = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+      // Store B2 URL for access
+      responseFileURL = uploadResult.url;
     }
 
     // Update file with response

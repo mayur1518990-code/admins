@@ -184,7 +184,6 @@ export default function UsersPage() {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      console.log('Users page - Mobile check:', mobile);
     };
     
     checkMobile();
@@ -212,7 +211,7 @@ export default function UsersPage() {
         email: editingUser.email || "",
         password: "", // Don't populate password for security
         phone: editingUser.phone || "",
-        role: editingUser.role || "user"
+        role: (editingUser.role as "admin" | "agent" | "user") || "user"
       });
     }
   }, [editingUser]);
@@ -423,9 +422,7 @@ export default function UsersPage() {
         }),
       });
 
-      console.log('Update password response status:', response.status);
       const result = await response.json();
-      console.log('Update password response result:', result);
       
       if (!result.success) {
         throw new Error(result.message || 'Failed to update password');
@@ -523,10 +520,7 @@ export default function UsersPage() {
       <div className="flex-1 flex flex-col">
         <MobileHeader 
           title="User Management" 
-          onMenuClick={() => {
-            console.log('Mobile header clicked, current sidebar state:', sidebarOpen);
-            setSidebarOpen(!sidebarOpen);
-          }} 
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
         />
         <main className="flex-1 p-6 mobile-app-content">
           <div className="max-w-7xl mx-auto">
@@ -727,7 +721,7 @@ export default function UsersPage() {
                     <button
                       onClick={() => {
                         const userToUpdate = users.find(u => u.id === user.id);
-                        if (userToUpdate) handleToggleActive(user.id);
+                        if (userToUpdate) handleUpdateUser(user.id, { isActive: !user.isActive });
                       }}
                       className={`text-xs px-3 py-1 rounded flex-1 ${
                         user.isActive 

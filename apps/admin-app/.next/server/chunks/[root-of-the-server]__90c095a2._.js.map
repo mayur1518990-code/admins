@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 3, "column": 0}, "map": {"version":3,"sources":[],"names":[],"mappings":"","debugId":null}},
-    {"offset": {"line": 49, "column": 0}, "map": {"version":3,"sources":["file:///D:/majalgav/hosting%20admin/apps/admin-app/src/app/api/agent/logout/route.ts"],"sourcesContent":["import { NextRequest, NextResponse } from 'next/server';\r\nimport { cookies } from 'next/headers';\r\n\r\nexport async function POST(request: NextRequest) {\r\n  try {\r\n    // Clear the agent token cookie\r\n    const cookieStore = await cookies();\r\n    cookieStore.delete('agent-token');\r\n\r\n    return NextResponse.json({\r\n      success: true,\r\n      message: 'Agent logged out successfully'\r\n    });\r\n\r\n  } catch (error: any) {\r\n    console.error('Agent logout error:', error);\r\n    return NextResponse.json(\r\n      { success: false, error: 'Failed to logout' },\r\n      { status: 500 }\r\n    );\r\n  }\r\n}\r\n\r\n"],"names":[],"mappings":";;;;AAAA;AACA;;;AAEO,eAAe,KAAK,OAAoB;IAC7C,IAAI;QACF,+BAA+B;QAC/B,MAAM,cAAc,MAAM,IAAA,4IAAO;QACjC,YAAY,MAAM,CAAC;QAEnB,OAAO,gJAAY,CAAC,IAAI,CAAC;YACvB,SAAS;YACT,SAAS;QACX;IAEF,EAAE,OAAO,OAAY;QACnB,QAAQ,KAAK,CAAC,uBAAuB;QACrC,OAAO,gJAAY,CAAC,IAAI,CACtB;YAAE,SAAS;YAAO,OAAO;QAAmB,GAC5C;YAAE,QAAQ;QAAI;IAElB;AACF","debugId":null}}]
-}

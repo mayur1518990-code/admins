@@ -85,16 +85,11 @@ export default function AgentsPage() {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      console.log('Agents page - Mobile check:', mobile);
     };
     
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  useEffect(() => {
-    loadAgents();
   }, []);
 
   // Populate form data when editing an agent
@@ -119,7 +114,7 @@ export default function AgentsPage() {
       setIsLoading(true);
       setError("");
       
-      const ttlMs = 5 * 60 * 1000; // 5 minutes cache
+      const ttlMs = 5 * 60 * 1000; // 5 minutes cache for better performance
       const cacheKey = getCacheKey(['admin-agents']);
       
       // Check cache first unless force refresh
@@ -127,6 +122,8 @@ export default function AgentsPage() {
         const cached = getCached<{ agents: Agent[] }>(cacheKey);
         if (isFresh(cached, ttlMs)) {
           setAgents(cached!.data.agents || []);
+          setIsLoading(false);
+          isLoadingRef.current = false;
           return;
         }
       }
@@ -186,6 +183,11 @@ export default function AgentsPage() {
       isLoadingRef.current = false;
     }
   }, []); // Empty dependency array is correct - this should never change
+
+  // Initial load only - no auto-refresh
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
 
   const handleAddAgent = async (e: React.FormEvent) => {
     e.preventDefault();

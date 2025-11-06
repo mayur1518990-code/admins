@@ -23,8 +23,6 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    console.log(`[AGENT-DELETE] Agent ${agent.agentId} attempting to delete ${fileIds.length} files`);
-
     // Verify that all files belong to this agent
     const agentFiles = await findAgentFiles(agent.agentId);
     const agentFileIds = agentFiles.map(f => f.id);
@@ -48,7 +46,6 @@ export async function DELETE(request: NextRequest) {
     }
 
     await batch.commit();
-    console.log(`[AGENT-DELETE] Successfully deleted ${deletedCount} files`);
 
     // Clear cache
     const cacheKey = makeKey('agent-files', [agent.agentId]);
@@ -60,7 +57,6 @@ export async function DELETE(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error deleting files:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to delete files' },
       { status: 500 }
@@ -68,6 +64,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+// OPTIMIZED: Get agent files with caching, batch user/completed file fetching
 export async function GET(request: NextRequest) {
   try {
     // Verify agent authentication
@@ -76,14 +73,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check cache first
+    // Check for fresh parameter to bypass cache
+    const searchParams = request.nextUrl.searchParams;
+    const fresh = searchParams.get('fresh') === '1';
+
+    // Check cache first (unless fresh data is requested)
     const cacheKey = makeKey('agent-files', [agent.agentId]);
-    const cached = serverCache.get<{ files: any[] }>(cacheKey);
-    if (cached) {
-      return NextResponse.json({
-        success: true,
-        files: cached.files
-      });
+    if (!fresh) {
+      const cached = serverCache.get<{ files: any[] }>(cacheKey);
+      if (cached) {
+        return NextResponse.json({
+          success: true,
+          files: cached.files
+        });
+      }
     }
 
     // Use the utility function to find files with multiple ID formats
@@ -97,7 +100,7 @@ export async function GET(request: NextRequest) {
       }))
     };
 
-    // OPTIMIZATION: Batch fetch all user data (fixes N+1 query problem)
+    // OPTIMIZED: Batch fetch all user data (fixes N+1 query problem)
     const userIds = [...new Set(filesSnapshot.docs.map(doc => doc.data().userId).filter(Boolean))];
     const completedFileIds = filesSnapshot.docs
       .map(doc => doc.data().completedFileId)
@@ -166,7 +169,10 @@ export async function GET(request: NextRequest) {
         userId: fileData.userId || '',
         userEmail,
         userPhone,
-        completedFile
+        completedFile,
+        // User message/comment from file edit
+        userComment: fileData.userComment || '',
+        userCommentUpdatedAt: fileData.userCommentUpdatedAt || ''
       };
     });
 
@@ -179,7 +185,6 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error fetching agent files:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch files' },
       { status: 500 }

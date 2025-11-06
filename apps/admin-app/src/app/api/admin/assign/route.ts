@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { fileIds, agentId, assignmentType } = await request.json();
+    const { fileIds, agentId, oldAgentId, assignmentType } = await request.json();
 
     if (!fileIds || !agentId) {
       return NextResponse.json({ 
@@ -121,6 +121,19 @@ export async function POST(request: NextRequest) {
     }
 
     const agentData = agentDoc.data();
+
+    // CRITICAL: Get user IDs from files to clear their caches
+    const fileDocsPromises = filesToAssign.map(fileId => 
+      adminDb.collection('files').doc(fileId).get()
+    );
+    const fileDocs = await Promise.all(fileDocsPromises);
+    const userIds = new Set<string>();
+    fileDocs.forEach(doc => {
+      if (doc.exists) {
+        const userId = doc.data()?.userId;
+        if (userId) userIds.add(userId);
+      }
+    });
 
     // OPTIMIZED: Use batched writes for better performance
     const maxBatchSize = 500; // Firestore batch limit
@@ -153,12 +166,35 @@ export async function POST(request: NextRequest) {
         fileIds: filesToAssign,
         agentId,
         agentName: agentData?.name || 'Unknown',
+        oldAgentId: oldAgentId || null,
         assignmentType: assignmentType || 'manual',
         timestamp: new Date()
       }),
       Promise.resolve().then(() => {
+        // Clear general caches
         serverCache.deleteByPrefix(makeKey('assign'));
         serverCache.deleteByPrefix(makeKey('files'));
+        
+        // CRITICAL: Clear user caches so users see updated file status (assigned -> processing)
+        userIds.forEach(userId => {
+          serverCache.delete(makeKey('user_files', [userId]));
+        });
+        
+        // CRITICAL: Clear agent-specific caches for both old and new agents
+        // This ensures performance stats update immediately
+        if (oldAgentId) {
+          // Clear old agent's dashboard and files cache
+          serverCache.delete(makeKey('agent-files', [oldAgentId]));
+          serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '30d']));
+          serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '7d']));
+          serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '90d']));
+        }
+        
+        // Clear new agent's dashboard and files cache
+        serverCache.delete(makeKey('agent-files', [agentId]));
+        serverCache.delete(makeKey('agent-dashboard', [agentId, '30d']));
+        serverCache.delete(makeKey('agent-dashboard', [agentId, '7d']));
+        serverCache.delete(makeKey('agent-dashboard', [agentId, '90d']));
       })
     ]);
 
@@ -194,6 +230,11 @@ export async function DELETE(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Get the file to find the current agent before unassigning
+    const fileDoc = await adminDb.collection('files').doc(fileId).get();
+    const fileData = fileDoc.data();
+    const oldAgentId = fileData?.assignedAgentId;
+
     // OPTIMIZED: Parallel operations for update and logging
     await Promise.all([
       adminDb.collection('files').doc(fileId).update({
@@ -206,6 +247,7 @@ export async function DELETE(request: NextRequest) {
         adminId: admin.adminId,
         adminName: admin.name,
         fileId,
+        oldAgentId: oldAgentId || null,
         timestamp: new Date()
       })
     ]);
@@ -213,6 +255,14 @@ export async function DELETE(request: NextRequest) {
     // Clear cache
     serverCache.deleteByPrefix(makeKey('assign'));
     serverCache.deleteByPrefix(makeKey('files'));
+    
+    // CRITICAL: Clear old agent's cache so their stats update
+    if (oldAgentId) {
+      serverCache.delete(makeKey('agent-files', [oldAgentId]));
+      serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '30d']));
+      serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '7d']));
+      serverCache.delete(makeKey('agent-dashboard', [oldAgentId, '90d']));
+    }
 
     return NextResponse.json({
       success: true,

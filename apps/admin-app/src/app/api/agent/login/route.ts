@@ -13,7 +13,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Search for agent in agents collection by email
-    const queryStart = Date.now();
     const agentsSnapshot = await adminDb.collection('agents')
       .where('email', '==', email)
       .limit(1)
@@ -61,9 +60,7 @@ export async function POST(request: NextRequest) {
           displayName: agentData.name,
           disabled: !agentData.isActive
         });
-        
       } catch (createError) {
-        console.error('Error creating Firebase Auth user:', createError);
         return NextResponse.json({ 
           success: false, 
           error: 'Failed to create authentication user' 
@@ -107,7 +104,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error in agent login:', error);
     return NextResponse.json(
       { success: false, error: 'Login failed' },
       { status: 500 }

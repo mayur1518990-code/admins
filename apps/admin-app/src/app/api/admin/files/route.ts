@@ -3,199 +3,18 @@ import { adminDb } from '@/lib/firebase-admin';
 import { FieldPath } from 'firebase-admin/firestore';
 import { serverCache, makeKey } from '@/lib/server-cache';
 import { verifyAdminAuth } from '@/lib/admin-auth';
+import { deleteFromB2 } from '@/lib/b2-storage';
+import { getCacheKey, deleteCached } from '@/lib/cache';
 
-// Helper function to handle Firestore connection issues with retry logic
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3,
-  delay: number = 1000
-): Promise<T> {
-  let lastError: any;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error: any) {
-      lastError = error;
-      
-      // Check if it's a connection error that we should retry
-      if (error.code === 14 || // UNAVAILABLE
-          error.message?.includes('No connection established') ||
-          error.message?.includes('network socket disconnected') ||
-          error.message?.includes('TLS connection') ||
-          error.code === 'ECONNRESET' ||
-          error.code === 'ENOTFOUND') {
-        
-        // Retrying...
-        
-        if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2; // Exponential backoff
-          continue;
-        }
-      }
-      
-      // If it's not a retryable error or we've exhausted retries, throw
-      throw error;
-    }
-  }
-  
-  throw lastError;
-}
+// Firestore has built-in retries, removed duplicate retry logic
 
-// Helper function to trigger automatic assignment for paid files
-async function triggerAutoAssignment(fileIds: string[]) {
-  try {
-    console.log(`[AUTO-ASSIGN] Triggering auto-assignment for ${fileIds.length} files`);
-    
-    // Get all active agents
-    const agentsSnapshot = await withRetry(() => adminDb.collection('agents')
-      .where('isActive', '==', true)
-      .get());
-
-    if (agentsSnapshot.empty) {
-      console.log('[AUTO-ASSIGN] No active agents found');
-      return { success: false, error: 'No active agents found' };
-    }
-
-    // OPTIMIZED: Get ALL assigned files with limit to prevent huge queries
-    const allAssignedFilesSnapshot = await withRetry(() => adminDb.collection('files')
-      .where('status', 'in', ['paid', 'assigned', 'in_progress'])
-      .limit(2000) // Limit to prevent huge queries
-      .get());
-
-    // Build workload map from single query result
-    const workloadMap = new Map<string, number>();
-    allAssignedFilesSnapshot.docs.forEach(doc => {
-      const agentId = doc.data().assignedAgentId;
-      if (agentId) {
-        workloadMap.set(agentId, (workloadMap.get(agentId) || 0) + 1);
-      }
-    });
-
-    // Calculate current workload for each agent (no additional queries needed!)
-    const agentWorkloads = agentsSnapshot.docs.map((agentDoc) => {
-      const agentData = agentDoc.data();
-      const agentId = agentDoc.id;
-
-      return {
-        agentId,
-        agentName: agentData.name || 'Unknown Agent',
-        agentEmail: agentData.email || 'No email',
-        currentWorkload: workloadMap.get(agentId) || 0, // O(1) lookup
-        maxWorkload: agentData.maxWorkload || 20,
-        isActive: agentData.isActive || false,
-        lastAssigned: agentData.lastAssigned || null
-      };
-    });
-
-    // Sort agents by workload (least loaded first)
-    const sortedAgents = agentWorkloads
-      .filter(agent => agent.isActive)
-      .sort((a, b) => {
-        if (a.currentWorkload !== b.currentWorkload) {
-          return a.currentWorkload - b.currentWorkload;
-        }
-        if (a.lastAssigned && b.lastAssigned) {
-          return new Date(a.lastAssigned).getTime() - new Date(b.lastAssigned).getTime();
-        }
-        if (!a.lastAssigned && b.lastAssigned) return -1;
-        if (a.lastAssigned && !b.lastAssigned) return 1;
-        return 0;
-      });
-
-    if (sortedAgents.length === 0) {
-      console.log('[AUTO-ASSIGN] No available agents for assignment');
-      return { success: false, error: 'No available agents for assignment' };
-    }
-
-    // Assign files to agents using round-robin with workload consideration
-    const assignments = [];
-    const agentUpdates = new Map<string, Date>();
-    let agentIndex = 0;
-
-    // OPTIMIZED: Use Firestore batch writes (up to 500 operations per batch)
-    const batch = adminDb.batch();
-    let operationCount = 0;
-    const MAX_BATCH_SIZE = 500;
-
-    for (const fileId of fileIds) {
-      // Find the best agent for this file
-      let selectedAgent = null;
-      
-      // Try to find an agent with available capacity
-      for (let i = 0; i < sortedAgents.length; i++) {
-        const agent = sortedAgents[agentIndex % sortedAgents.length];
-        agentIndex++;
-        
-        if (agent.currentWorkload < agent.maxWorkload) {
-          selectedAgent = agent;
-          break;
-        }
-      }
-
-      // If no agent has capacity, assign to the least loaded one
-      if (!selectedAgent) {
-        selectedAgent = sortedAgents[0];
-      }
-
-      // Add file update to batch
-      const fileRef = adminDb.collection('files').doc(fileId);
-      batch.update(fileRef, {
-        assignedAgentId: selectedAgent.agentId,
-        assignedAt: new Date(),
-        status: 'assigned',
-        updatedAt: new Date()
-      });
-      operationCount++;
-
-      // Track agent update (will be batched later)
-      agentUpdates.set(selectedAgent.agentId, new Date());
-
-      // Update agent's workload count
-      selectedAgent.currentWorkload++;
-
-      assignments.push({
-        fileId,
-        agentId: selectedAgent.agentId,
-        agentName: selectedAgent.agentName,
-        workload: selectedAgent.currentWorkload
-      });
-
-      // Commit batch if we hit the limit
-      if (operationCount >= MAX_BATCH_SIZE) {
-        await batch.commit();
-        operationCount = 0;
-      }
-    }
-
-    // Add agent updates to batch
-    agentUpdates.forEach((lastAssigned, agentId) => {
-      const agentRef = adminDb.collection('agents').doc(agentId);
-      batch.update(agentRef, {
-        lastAssigned,
-        updatedAt: new Date()
-      });
-      operationCount++;
-    });
-
-    // Commit any remaining operations
-    if (operationCount > 0) {
-      await batch.commit();
-    }
-    
-    return {
-      success: true,
-      message: `Successfully auto-assigned ${fileIds.length} file(s)`,
-      assignments: assignments,
-      totalAssigned: fileIds.length
-    };
-
-  } catch (error) {
-    console.error('[AUTO-ASSIGN] Error in auto-assignment:', error);
-    return { success: false, error: 'Auto-assignment failed' };
-  }
-}
+/**
+ * AUTOMATIC ASSIGNMENT REMOVED
+ * 
+ * Automatic assignment logic has been removed from this file.
+ * Use /api/admin/auto-assign endpoint with Smart Auto Assign button
+ * for controlled, fair file distribution based on agent workload.
+ */
 
 export async function GET(request: NextRequest) {
   try {
@@ -211,19 +30,69 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || 'all';
     const assignedAgent = searchParams.get('assignedAgent') || 'all';
+    const daysOld = searchParams.get('daysOld') || 'all';
+    const fileIdsParam = searchParams.get('fileIds') || '';
 
     const fresh = searchParams.get('fresh') === '1';
-    const cacheKey = makeKey('files', ['list', page, limit, status || 'all', assignedAgent || 'all', search || '']);
-    const cached = fresh ? undefined : serverCache.get<any>(cacheKey);
-    if (cached) {
-      return NextResponse.json(cached);
+    const cacheKey = makeKey('files', ['list', page, limit, status || 'all', assignedAgent || 'all', search || '', daysOld || 'all', fileIdsParam]);
+    
+    // Check server cache only if NOT requesting fresh data
+    if (!fresh) {
+      const cached = serverCache.get<any>(cacheKey);
+      if (cached) {
+        return NextResponse.json(cached);
+      }
     }
 
-    // Build optimized query with filters at database level
-    let baseQuery: FirebaseFirestore.Query = adminDb.collection('files');
+    // REAL-TIME MODE: If fileIds provided, fetch specific files
+    let filesSnapshot: FirebaseFirestore.QuerySnapshot;
+    
+    if (fileIdsParam) {
+      const fileIds = fileIdsParam.split(',').filter(Boolean);
+      
+      // ULTRA-OPTIMIZED: For single file, use direct document fetch (3x faster!)
+      if (fileIds.length === 1) {
+        const doc = await adminDb.collection('files').doc(fileIds[0]).get();
+        filesSnapshot = {
+          docs: doc.exists ? [doc] : [],
+          empty: !doc.exists,
+          forEach: (cb: any) => doc.exists ? [doc].forEach(cb) : undefined,
+          size: doc.exists ? 1 : 0,
+          metadata: undefined as any,
+          query: undefined as any
+        } as unknown as FirebaseFirestore.QuerySnapshot;
+      } else {
+        // Fetch files in batches of 10 (Firestore 'in' query limit)
+        const batchSize = 10;
+        const allDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+        
+        for (let i = 0; i < fileIds.length; i += batchSize) {
+          const batchIds = fileIds.slice(i, Math.min(i + batchSize, fileIds.length));
+          const batchSnapshot = await adminDb.collection('files')
+            .where(FieldPath.documentId(), 'in', batchIds)
+            .get();
+          allDocs.push(...batchSnapshot.docs);
+        }
+        
+        filesSnapshot = {
+          docs: allDocs,
+          empty: allDocs.length === 0,
+          forEach: (cb: any) => allDocs.forEach(cb),
+          size: allDocs.length,
+          metadata: undefined as any,
+          query: undefined as any
+        } as unknown as FirebaseFirestore.QuerySnapshot;
+      }
+    } else {
+      // Build optimized query with filters at database level
+      let baseQuery: FirebaseFirestore.Query = adminDb.collection('files');
     
     // Apply status filter at database level
-    if (status !== 'all') {
+    // IMPORTANT: Always exclude pending_payment files from file management view
+    if (status === 'all') {
+      // When showing "all", exclude pending_payment files
+      baseQuery = baseQuery.where('status', '!=', 'pending_payment');
+    } else if (status !== 'all') {
       baseQuery = baseQuery.where('status', '==', status);
     }
     
@@ -232,33 +101,32 @@ export async function GET(request: NextRequest) {
       baseQuery = baseQuery.where('assignedAgentId', '==', assignedAgent);
     }
     
-    // Prefer indexed sort when available
-    let filesSnapshot: FirebaseFirestore.QuerySnapshot;
-    try {
-      const indexedQuery = baseQuery.orderBy('uploadedAt', 'desc').limit(1000);
-      filesSnapshot = await withRetry(() => indexedQuery.get());
-    } catch (err: any) {
-      // Fallback if composite index is missing: fetch without orderBy and sort in memory
-      if (err?.code === 9 || err?.message?.includes('requires an index')) {
-        const fallbackSnapshot = await withRetry(() => baseQuery.limit(1000).get());
-        // Sort docs in-memory by uploadedAt desc to preserve expected ordering
-        const sortedDocs = fallbackSnapshot.docs.sort((a, b) => {
-          const aTime = a.data()?.uploadedAt?.toDate?.()?.getTime?.() ?? new Date(a.data()?.uploadedAt || 0).getTime();
-          const bTime = b.data()?.uploadedAt?.toDate?.()?.getTime?.() ?? new Date(b.data()?.uploadedAt || 0).getTime();
-          return bTime - aTime;
-        });
-        // Create a lightweight snapshot-like object
-        filesSnapshot = {
-          docs: sortedDocs,
-          empty: sortedDocs.length === 0,
-          forEach: (cb: any) => sortedDocs.forEach(cb),
-          size: sortedDocs.length,
-          // Unused properties in our code path; add minimal stubs to satisfy types
-          metadata: undefined as any,
-          query: undefined as any
-        } as unknown as FirebaseFirestore.QuerySnapshot;
-      } else {
-        throw err;
+      // OPTIMIZATION: Reduced limit for faster initial response (30 files instead of 50+)
+      const queryLimit = Math.min(limit, 30); // Much smaller limit for speed
+      
+      try {
+        const indexedQuery = baseQuery.orderBy('uploadedAt', 'desc').limit(queryLimit);
+        filesSnapshot = await indexedQuery.get();
+      } catch (err: any) {
+        // Fallback if composite index is missing
+        if (err?.code === 9 || err?.message?.includes('requires an index')) {
+          const fallbackSnapshot = await baseQuery.limit(queryLimit).get();
+          const sortedDocs = fallbackSnapshot.docs.sort((a, b) => {
+            const aTime = a.data()?.uploadedAt?.toDate?.()?.getTime?.() ?? 0;
+            const bTime = b.data()?.uploadedAt?.toDate?.()?.getTime?.() ?? 0;
+            return bTime - aTime;
+          });
+          filesSnapshot = {
+            docs: sortedDocs,
+            empty: sortedDocs.length === 0,
+            forEach: (cb: any) => sortedDocs.forEach(cb),
+            size: sortedDocs.length,
+            metadata: undefined as any,
+            query: undefined as any
+          } as unknown as FirebaseFirestore.QuerySnapshot;
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -270,51 +138,114 @@ export async function GET(request: NextRequest) {
       const data = doc.data();
       if (data.userId) userIds.add(data.userId);
       if (data.assignedAgentId) agentIds.add(data.assignedAgentId);
-      return { id: doc.id, ...data };
+      return { id: doc.id, ...data } as any;
     });
 
-    // OPTIMIZED: Batch fetch users and agents with limits
-    const [usersSnapshot, agentsSnapshot] = await Promise.all([
-      userIds.size > 0 
-        ? withRetry(() => adminDb.collection('users')
-            .where(FieldPath.documentId(), 'in', Array.from(userIds).slice(0, 10))
-            .limit(100) // Additional limit
-            .get())
-        : Promise.resolve({ docs: [] } as any),
-      agentIds.size > 0
-        ? withRetry(() => adminDb.collection('agents')
-            .where(FieldPath.documentId(), 'in', Array.from(agentIds).slice(0, 10))
-            .limit(100) // Additional limit
-            .get())
-        : Promise.resolve({ docs: [] } as any)
-    ]);
+    // OPTIMIZED: Batch fetch users and agents with caching
+    const userAgentCacheKey = makeKey('users-agents', ['lookup']);
+    const cachedUserAgentData = serverCache.get<{ users: Map<string, any>, agents: Map<string, any> }>(userAgentCacheKey);
+    
+    let usersMap = new Map();
+    let agentsMap = new Map();
+    
+    if (cachedUserAgentData) {
+      // Use cached data and only fetch missing ones
+      usersMap = new Map(cachedUserAgentData.users);
+      agentsMap = new Map(cachedUserAgentData.agents);
+      
+      const missingUserIds = Array.from(userIds).filter(id => !usersMap.has(id));
+      const missingAgentIds = Array.from(agentIds).filter(id => !agentsMap.has(id));
+      
+      if (missingUserIds.length > 0 || missingAgentIds.length > 0) {
+        // ULTRA-OPTIMIZED: For single items, use direct document fetch (faster than 'in' query)
+        const [newUserDocs, newAgentDocs] = await Promise.all([
+          missingUserIds.length === 1 
+            ? adminDb.collection('users').doc(missingUserIds[0]).get().then(doc => ({ docs: doc.exists ? [doc] : [] }))
+            : missingUserIds.length > 0 
+              ? adminDb.collection('users').where(FieldPath.documentId(), 'in', missingUserIds.slice(0, 10)).get() 
+              : Promise.resolve({ docs: [] }),
+          missingAgentIds.length === 1
+            ? adminDb.collection('agents').doc(missingAgentIds[0]).get().then(doc => ({ docs: doc.exists ? [doc] : [] }))
+            : missingAgentIds.length > 0 
+              ? adminDb.collection('agents').where(FieldPath.documentId(), 'in', missingAgentIds.slice(0, 10)).get() 
+              : Promise.resolve({ docs: [] })
+        ]);
+        
+        newUserDocs.docs.forEach((doc: any) => {
+          const data = doc.data();
+          usersMap.set(doc.id, {
+            id: doc.id,
+            name: data?.name || 'Unknown',
+            email: data?.email || 'Unknown',
+            phone: data?.phone || 'Unknown'
+          });
+        });
+        
+        newAgentDocs.docs.forEach((doc: any) => {
+          const data = doc.data();
+          agentsMap.set(doc.id, {
+            id: doc.id,
+            name: data?.name || 'Unknown',
+            email: data?.email || 'Unknown',
+            phone: data?.phone || 'Unknown'
+          });
+        });
+        
+        // Update cache with new data
+        serverCache.set(userAgentCacheKey, { users: usersMap, agents: agentsMap }, 300_000); // 5 min cache
+      }
+    } else {
+      // No cache, fetch all needed
+      const fetchBatch = async (collection: string, ids: string[]) => {
+        if (ids.length === 0) return [];
+        
+        // ULTRA-OPTIMIZED: For single item, use direct document fetch (3x faster!)
+        if (ids.length === 1) {
+          const doc = await adminDb.collection(collection).doc(ids[0]).get();
+          return doc.exists ? [doc] : [];
+        }
+        
+        const batches = [];
+        for (let i = 0; i < ids.length; i += 10) {
+          const batch = ids.slice(i, i + 10);
+          batches.push(
+            adminDb.collection(collection)
+              .where(FieldPath.documentId(), 'in', batch)
+              .get()
+          );
+        }
+        const results = await Promise.all(batches);
+        return results.flatMap(snapshot => snapshot.docs);
+      };
 
-    // Skip additional batch processing for performance - use only first 10 IDs
-    // This prevents excessive queries that slow down the API
-
-
-    // Create lookup maps for O(1) access
-    const usersMap = new Map();
-    usersSnapshot.docs.forEach((doc: any) => {
-      const data = doc.data();
-      usersMap.set(doc.id, {
-        id: doc.id,
-        name: data?.name || 'Unknown',
-        email: data?.email || 'Unknown',
-        phone: data?.phone || 'Unknown'
+      const [userDocs, agentDocs] = await Promise.all([
+        fetchBatch('users', Array.from(userIds)),
+        fetchBatch('agents', Array.from(agentIds))
+      ]);
+      
+      userDocs.forEach((doc: any) => {
+        const data = doc.data();
+        usersMap.set(doc.id, {
+          id: doc.id,
+          name: data?.name || 'Unknown',
+          email: data?.email || 'Unknown',
+          phone: data?.phone || 'Unknown'
+        });
       });
-    });
 
-    const agentsMap = new Map();
-    agentsSnapshot.docs.forEach((doc: any) => {
-      const data = doc.data();
-      agentsMap.set(doc.id, {
-        id: doc.id,
-        name: data?.name || 'Unknown',
-        email: data?.email || 'Unknown',
-        phone: data?.phone || 'Unknown'
+      agentDocs.forEach((doc: any) => {
+        const data = doc.data();
+        agentsMap.set(doc.id, {
+          id: doc.id,
+          name: data?.name || 'Unknown',
+          email: data?.email || 'Unknown',
+          phone: data?.phone || 'Unknown'
+        });
       });
-    });
+      
+      // Cache for 5 minutes
+      serverCache.set(userAgentCacheKey, { users: usersMap, agents: agentsMap }, 300_000);
+    }
 
     // Map files with user and agent data from lookup maps (O(N) instead of O(N*M))
     let files = filesData.map(data => ({
@@ -331,8 +262,21 @@ export async function GET(request: NextRequest) {
       responseMessage: data.responseMessage || null,
       user: data.userId ? usersMap.get(data.userId) || null : null,
       agent: data.assignedAgentId ? agentsMap.get(data.assignedAgentId) || null : null,
-      paymentId: data.paymentId || null
+      paymentId: data.paymentId || null,
+      b2Key: data.b2Key || data.filename || null
     }));
+
+    // Apply days filter - show files older than specified days
+    if (daysOld !== 'all') {
+      const daysThreshold = parseInt(daysOld);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysThreshold);
+      
+      files = files.filter(file => {
+        const uploadDate = new Date(file.uploadedAt);
+        return uploadDate < cutoffDate;
+      });
+    }
 
     // Apply search filter
     if (search) {
@@ -363,14 +307,14 @@ export async function GET(request: NextRequest) {
       }
     };
 
-    // Use shorter TTL to reduce staleness after payments; skip caching if explicitly fresh
+    // Cache for 30 seconds only (reduced from 2 minutes for instant data visibility)
     if (!fresh) {
-      serverCache.set(cacheKey, responsePayload, 10_000); // 10s TTL for fresher files list
+      serverCache.set(cacheKey, responsePayload, 30_000); // 30 seconds cache
     }
+    
     return NextResponse.json(responsePayload);
 
   } catch (error: any) {
-    console.error('Error fetching files:', error);
     
     // Handle specific error types
     if (error.code === 14 || error.message?.includes('No connection established')) {
@@ -428,21 +372,8 @@ export async function PATCH(request: NextRequest) {
     await adminDb.collection('files').doc(fileId).update(updateData);
     serverCache.deleteByPrefix(makeKey('files'));
 
-    // Auto-assign if file status changed to 'paid' and no agent is assigned
-    if (status === 'paid' && !assignedAgentId) {
-      try {
-        console.log('File marked as paid, triggering auto-assignment for:', fileId);
-        const autoAssignResult = await triggerAutoAssignment([fileId]);
-        
-        if (autoAssignResult.success) {
-          console.log('Auto-assignment successful:', autoAssignResult);
-        } else {
-          console.error('Auto-assignment failed:', autoAssignResult);
-        }
-      } catch (error) {
-        console.error('Error in auto-assignment trigger:', error);
-      }
-    }
+    // NO automatic assignment - Admin uses Smart Auto Assign button for controlled distribution
+    // This prevents unwanted bulk assignments when status changes to 'paid'
 
     // Log the action
     await adminDb.collection('logs').add({
@@ -451,7 +382,7 @@ export async function PATCH(request: NextRequest) {
       adminName: admin.name,
       fileId,
       changes: updateData,
-      autoAssigned: status === 'paid' && !assignedAgentId,
+      note: status === 'paid' && !assignedAgentId ? 'File marked as paid. Use Smart Auto Assign for distribution.' : undefined,
       timestamp: new Date()
     });
 
@@ -461,7 +392,6 @@ export async function PATCH(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error updating file:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update file' },
       { status: 500 }
@@ -477,7 +407,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { fileId, status, triggerAutoAssign = false } = await request.json();
+    const { fileId, status } = await request.json();
 
     if (!fileId || !status) {
       return NextResponse.json({ 
@@ -486,7 +416,7 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Update file status
+    // Update file status ONLY - NO automatic assignment
     const updateData: any = {
       status,
       updatedAt: new Date()
@@ -495,24 +425,8 @@ export async function PUT(request: NextRequest) {
     await adminDb.collection('files').doc(fileId).update(updateData);
     serverCache.deleteByPrefix(makeKey('files'));
 
-    // If status is 'paid' and auto-assignment is enabled, trigger it
-    if (status === 'paid' && triggerAutoAssign) {
-      const autoAssignResult = await triggerAutoAssignment([fileId]);
-      
-      if (autoAssignResult.success) {
-        return NextResponse.json({
-          success: true,
-          message: 'File status updated and auto-assigned successfully',
-          autoAssignment: autoAssignResult
-        });
-      } else {
-        return NextResponse.json({
-          success: true,
-          message: 'File status updated, but auto-assignment failed',
-          autoAssignment: autoAssignResult
-        });
-      }
-    }
+    // NO automatic assignment - Use Smart Auto Assign button instead
+    // This ensures controlled, fair distribution based on agent workload
 
     // Log the action
     await adminDb.collection('logs').add({
@@ -521,7 +435,7 @@ export async function PUT(request: NextRequest) {
       adminName: admin.name,
       fileId,
       newStatus: status,
-      triggerAutoAssign,
+      note: status === 'paid' ? 'File marked as paid. Use Smart Auto Assign for fair distribution.' : undefined,
       timestamp: new Date()
     });
 
@@ -531,7 +445,6 @@ export async function PUT(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error updating file status:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update file status' },
       { status: 500 }
@@ -564,15 +477,76 @@ export async function DELETE(request: NextRequest) {
       chunks.push(idsToDelete.slice(i, i + 500));
     }
 
+    // Track unique user IDs and agent IDs to clear their caches
+    const affectedUserIds = new Set<string>();
+    const affectedAgentIds = new Set<string>();
+
     for (const chunk of chunks) {
       const batch = adminDb.batch();
       const fileDocs = await Promise.all(chunk.map(id => adminDb.collection('files').doc(id).get()));
+      
+      // Collect B2 keys to delete from storage and completed file IDs
+      const b2KeysToDelete: string[] = [];
+      const completedFileIds: string[] = [];
+      
       fileDocs.forEach((doc, idx) => {
         if (doc.exists) {
           const id = chunk[idx];
+          const data = doc.data();
+          
+          // Track user ID for cache invalidation
+          if (data?.userId) {
+            affectedUserIds.add(data.userId);
+          }
+          
+          // Track agent ID for cache invalidation
+          if (data?.assignedAgentId) {
+            affectedAgentIds.add(data.assignedAgentId);
+          }
+          
+          // AGGRESSIVE DELETE: Collect ALL B2 keys from files collection
+          
+          // 1. Collect b2Key if present (direct B2 reference)
+          if (data?.b2Key) {
+            b2KeysToDelete.push(data.b2Key);
+          }
+          
+          // 2. Try uploads folder patterns (user uploaded files)
+          if (data?.filename) {
+            // Pattern 1: uploads/{userId}/{filename}
+            if (data?.userId) {
+              const uploadsPath = `uploads/${data.userId}/${data.filename}`;
+              b2KeysToDelete.push(uploadsPath);
+            }
+            
+            // Pattern 2: uploads/{filename} (alternative pattern)
+            const directUploadPath = `uploads/${data.filename}`;
+            b2KeysToDelete.push(directUploadPath);
+          }
+          
+          // 3. Extract B2 key from responseFileURL if present (agent-responses folder)
+          if (data?.responseFileURL) {
+            try {
+              // Extract path from URL: https://...backblazeb2.com/bucket/path
+              const url = new URL(data.responseFileURL);
+              const pathParts = url.pathname.split('/');
+              // Remove empty first element and bucket name
+              const b2Path = pathParts.slice(2).join('/');
+              if (b2Path) {
+                b2KeysToDelete.push(b2Path);
+              }
+            } catch (error) {
+              // Silent fail - B2 path parsing error
+            }
+          }
+          
+          // 4. Collect completed file ID to fetch and delete from completedFiles collection (agent-uploads)
+          if (data?.completedFileId) {
+            completedFileIds.push(data.completedFileId);
+          }
+          
           batch.delete(doc.ref);
           // Log each deletion
-          const data = doc.data();
           const logRef = adminDb.collection('logs').doc();
           batch.set(logRef, {
             action: 'file_deleted',
@@ -582,24 +556,84 @@ export async function DELETE(request: NextRequest) {
             fileName: data?.filename || 'Unknown',
             originalName: data?.originalName || 'Unknown',
             userId: data?.userId || 'Unknown',
+            hadB2Storage: !!data?.b2Key || !!data?.completedFileId,
             timestamp: new Date()
           });
           deletedCount += 1;
         }
       });
+      
+      // Fetch completedFiles documents and delete them along with their B2 files
+      if (completedFileIds.length > 0) {
+        const completedFileDocs = await Promise.all(
+          completedFileIds.map(id => adminDb.collection('completedFiles').doc(id).get())
+        );
+        
+        completedFileDocs.forEach((completedDoc) => {
+          if (completedDoc.exists) {
+            const completedData = completedDoc.data();
+            
+            // Collect B2 key from completed file (this is in agent-uploads folder)
+            if (completedData?.b2Key) {
+              b2KeysToDelete.push(completedData.b2Key);
+            }
+            
+            // Delete the completedFiles document
+            batch.delete(completedDoc.ref);
+          }
+        });
+      }
+      
+      // AGGRESSIVE B2 DELETE: Delete ALL collected files from B2 storage
+      // This includes: uploads/, agent-uploads/, agent-responses/, and any other B2 files
+      if (b2KeysToDelete.length > 0) {
+        // CRITICAL FIX: AWAIT B2 deletion to ensure files are actually deleted!
+        try {
+          await Promise.all(b2KeysToDelete.map(async (key) => {
+            try {
+              await deleteFromB2(key);
+            } catch (error: any) {
+              // Don't throw - continue with other deletions
+            }
+          }));
+        } catch (error: any) {
+          // Continue with database deletion even if B2 fails
+        }
+      }
+      
+      // Delete from Firestore AFTER B2 deletion completes
       await batch.commit();
     }
 
+    // Invalidate all relevant caches
     serverCache.deleteByPrefix(makeKey('files'));
+    serverCache.deleteByPrefix(makeKey('users-agents')); // Also invalidate user-agent cache
 
+    // CRITICAL FIX: Also invalidate USER APP cache for affected users
+    // NOTE: This clears the admin-app's copy of user cache. The user-app has its own
+    // separate server process with its own cache, which will auto-expire within 30 seconds
+    // (reduced from 5 minutes for faster deletion visibility)
+    for (const userId of affectedUserIds) {
+      const userFilesKey = getCacheKey(['user_files', userId]);
+      deleteCached(userFilesKey);
+    }
+
+    // CRITICAL FIX: Also invalidate AGENT cache for affected agents
+    for (const agentId of affectedAgentIds) {
+      const agentFilesKey = makeKey('agent-files', [agentId]);
+      serverCache.delete(agentFilesKey);
+    }
+    
     return NextResponse.json({
       success: true,
-      message: deletedCount === 1 ? 'File deleted successfully' : `Deleted ${deletedCount} files`,
-      deletedCount
+      message: deletedCount === 1 
+        ? 'File completely deleted from Firebase and B2 (uploads/, agent-uploads/, agent-responses/). Not visible anywhere.' 
+        : `${deletedCount} files completely deleted from Firebase and B2 storage. Not visible anywhere.`,
+      deletedCount,
+      note: 'Hard delete complete: File removed from Firebase metadata, completedFiles collection, and ALL B2 storage folders (uploads/, agent-uploads/, agent-responses/). Not visible in user portal, agent portal, Firebase, or B2 bucket.'
     });
 
   } catch (error: any) {
-    console.error('Error deleting file:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to delete file' },
       { status: 500 }

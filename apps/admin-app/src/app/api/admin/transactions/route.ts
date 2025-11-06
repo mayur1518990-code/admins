@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const userId = searchParams.get('userId');
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const limit = parseInt(searchParams.get('limit') || '20'); // ULTRA-OPTIMIZED: Reduced from 30 to 20
     const fileId = searchParams.get('fileId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query with limits to prevent huge data fetches
-    let query = adminDb.collection('payments');
+    let query: any = adminDb.collection('payments');
     
     if (status) {
       query = query.where('status', '==', status);
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     }
 
     // CRITICAL: Add limit to prevent huge queries
-    query = query.orderBy('createdAt', 'desc').limit(Math.min(limit * 2, 1000)); // Allow some buffer for filtering
+    query = query.orderBy('createdAt', 'desc').limit(Math.min(limit * 2, 50)); // ULTRA-OPTIMIZED: Reduced from 100 to 50
 
     const snapshot = await query.get();
     
@@ -72,55 +72,73 @@ export async function GET(request: NextRequest) {
     const userIds = new Set<string>();
     const fileIds = new Set<string>();
     
-    snapshot.docs.forEach(doc => {
+    snapshot.docs.forEach((doc: any) => {
       const data = doc.data();
       if (data.userId) userIds.add(data.userId);
       if (data.fileId) fileIds.add(data.fileId);
     });
 
-    // OPTIMIZED: Use 'in' queries with limits instead of individual document fetches
+    // ULTRA-OPTIMIZED: Use Firestore 'in' queries (batch 10 at a time) instead of individual fetches
     const [usersMap, filesMap] = await Promise.all([
-      // Batch fetch users with limit
+      // Batch fetch users using 'in' queries (10 IDs per query)
       (async () => {
         const map = new Map<string, any>();
         if (userIds.size === 0) return map;
         
         const userIdArray = Array.from(userIds);
-        const userPromises = userIdArray.map(id => 
-          adminDb.collection('users').doc(id).get()
-        );
-        const userDocs = await Promise.all(userPromises);
+        const batchSize = 10; // Firestore 'in' limit
+        const batches = [];
         
-        userDocs.forEach((doc, idx) => {
-          if (doc.exists) {
-            map.set(userIdArray[idx], doc.data());
-          }
-        });
+        for (let i = 0; i < userIdArray.length; i += batchSize) {
+          const batch = userIdArray.slice(i, i + batchSize);
+          batches.push(
+            adminDb.collection('users')
+              .where('__name__', 'in', batch)
+              .get()
+              .then(snapshot => {
+                snapshot.docs.forEach(doc => {
+                  map.set(doc.id, doc.data());
+                });
+              })
+              .catch(() => {}) // Ignore errors
+          );
+        }
+        
+        await Promise.all(batches);
         return map;
       })(),
       
-      // Batch fetch files with limit
+      // Batch fetch files using 'in' queries (10 IDs per query)
       (async () => {
         const map = new Map<string, any>();
         if (fileIds.size === 0) return map;
         
         const fileIdArray = Array.from(fileIds);
-        const filePromises = fileIdArray.map(id => 
-          adminDb.collection('files').doc(id).get()
-        );
-        const fileDocs = await Promise.all(filePromises);
+        const batchSize = 10; // Firestore 'in' limit
+        const batches = [];
         
-        fileDocs.forEach((doc, idx) => {
-          if (doc.exists) {
-            map.set(fileIdArray[idx], doc.data());
-          }
-        });
+        for (let i = 0; i < fileIdArray.length; i += batchSize) {
+          const batch = fileIdArray.slice(i, i + batchSize);
+          batches.push(
+            adminDb.collection('files')
+              .where('__name__', 'in', batch)
+              .get()
+              .then(snapshot => {
+                snapshot.docs.forEach(doc => {
+                  map.set(doc.id, doc.data());
+                });
+              })
+              .catch(() => {}) // Ignore errors
+          );
+        }
+        
+        await Promise.all(batches);
         return map;
       })()
     ]);
 
     // Map transactions with batched data
-    let transactions = snapshot.docs.map(doc => {
+    let transactions = snapshot.docs.map((doc: any) => {
       const data = doc.data();
       const userData = usersMap.get(data.userId);
       const fileData = filesMap.get(data.fileId);
@@ -155,7 +173,7 @@ export async function GET(request: NextRequest) {
     // Apply server-side search filter if provided
     if (search) {
       const searchLower = search.toLowerCase();
-      transactions = transactions.filter(t => {
+      transactions = transactions.filter((t: any) => {
         return (
           t.user?.name?.toLowerCase().includes(searchLower) ||
           t.user?.email?.toLowerCase().includes(searchLower) ||
@@ -237,13 +255,11 @@ export async function GET(request: NextRequest) {
     };
     
     if (!fresh) {
-      serverCache.set(cacheKey, payload, 10_000); // 10s cache for fresher data
+      serverCache.set(cacheKey, payload, 60_000); // 1 minute cache (balance between speed and freshness)
     }
     return NextResponse.json(payload);
 
   } catch (error: any) {
-    console.error("Error fetching transactions:", error);
-    
     return NextResponse.json(
       { success: false, message: "Failed to fetch transactions" },
       { status: 500 }
@@ -376,7 +392,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (cleanupErr) {
-        console.error('Duplicate pending cleanup failed:', cleanupErr);
+        // Silent fail - cleanup is non-critical
       }
     }
 
@@ -389,8 +405,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error("Error updating transaction:", error);
-    
     return NextResponse.json(
       { success: false, message: "Failed to update transaction" },
       { status: 500 }
@@ -443,7 +457,6 @@ export async function DELETE(request: NextRequest) {
       deletedCount
     });
   } catch (error: any) {
-    console.error('Error deleting transactions:', error);
     return NextResponse.json(
       { success: false, message: 'Failed to delete transactions' },
       { status: 500 }

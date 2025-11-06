@@ -1,9 +1,0 @@
-{
-  "[project]/apps/admin-app/src/components/AdminSidebar.tsx [app-client] (ecmascript, next/dynamic entry)": {
-    "id": "[project]/apps/admin-app/src/components/AdminSidebar.tsx [app-client] (ecmascript, next/dynamic entry)",
-    "files": [
-      "static/chunks/apps_admin-app_src_components_AdminSidebar_tsx_f760599a._.js",
-      "static/chunks/apps_admin-app_src_components_AdminSidebar_tsx_59fb3d88._.js"
-    ]
-  }
-}

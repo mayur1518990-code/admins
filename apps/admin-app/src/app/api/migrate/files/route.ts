@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const files = filesSnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
-    }));
+    } as any));
 
     console.log(`[MIGRATION] Found ${files.length} files to check`);
 

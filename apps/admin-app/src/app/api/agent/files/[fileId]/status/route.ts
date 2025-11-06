@@ -63,7 +63,7 @@ export async function PATCH(
         agentId: agent.agentId,
         agentName: agent.name,
         fileId,
-        oldStatus: fileData.status,
+        oldStatus: fileData!.status,
         newStatus: status,
         timestamp: new Date()
       })
@@ -75,8 +75,20 @@ export async function PATCH(
       deleteCached(cacheKey);
     }
 
-    // NOTE: No server-side cache invalidation for status updates
-    // We use optimistic updates on the frontend instead of full refresh
+    // CRITICAL: Invalidate agent dashboard and files cache when status changes
+    // This ensures the performance stats update immediately
+    const agentFilesKey = makeKey('agent-files', [agent.agentId]);
+    const agentDashboardKey = makeKey('agent-dashboard', [agent.agentId, '30d']);
+    const agentDashboard7dKey = makeKey('agent-dashboard', [agent.agentId, '7d']);
+    const agentDashboard90dKey = makeKey('agent-dashboard', [agent.agentId, '90d']);
+    
+    serverCache.delete(agentFilesKey);
+    serverCache.delete(agentDashboardKey);
+    serverCache.delete(agentDashboard7dKey);
+    serverCache.delete(agentDashboard90dKey);
+    
+    // Also invalidate client-side cache
+    deleteCached(getCacheKey(['agent-files']));
 
     return NextResponse.json({
       success: true,

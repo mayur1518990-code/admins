@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { verifyAdminAuth } from "@/lib/admin-auth";
+import { serverCache, makeKey } from "@/lib/server-cache";
 
-// POST - Automatically assign files to agents based on workload
+/**
+ * SMART FILE ASSIGNMENT ALGORITHM
+ * 
+ * This algorithm distributes files fairly among agents based on:
+ * 1. Completed files (less is better - agent has less overall work done)
+ * 2. Pending files (less is better - agent has less current workload)
+ * 
+ * The algorithm prevents bulk assignments to any single agent by:
+ * - Rotating through agents as files are assigned
+ * - Prioritizing agents with the least total work (completed + pending)
+ * - Ensuring equal distribution when workloads are similar
+ */
+
+// POST - Smart assignment based on completed and pending files
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   try {
@@ -11,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { fileIds, assignmentType = 'auto_workload' } = await request.json();
+    const { fileIds, assignmentType = 'smart_balanced' } = await request.json();
     if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
       return NextResponse.json({ 
         success: false, 
@@ -19,14 +33,25 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    console.log(`Auto-assign POST: Starting for ${fileIds.length} files`);
+    console.log(`Smart-assign: Starting for ${fileIds.length} files`);
+
+    // CRITICAL: Get user IDs from files to clear their caches later
+    const fileDocsPromises = fileIds.map(fileId => 
+      adminDb.collection('files').doc(fileId).get()
+    );
+    const fileDocs = await Promise.all(fileDocsPromises);
+    const userIds = new Set<string>();
+    fileDocs.forEach(doc => {
+      if (doc.exists) {
+        const userId = doc.data()?.userId;
+        if (userId) userIds.add(userId);
+      }
+    });
 
     // Get all active agents
-    const agentsQueryStart = Date.now();
     const agentsSnapshot = await adminDb.collection('agents')
       .where('isActive', '==', true)
       .get();
-    console.log(`Auto-assign POST: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
 
     if (agentsSnapshot.empty) {
       return NextResponse.json({ 
@@ -35,53 +60,68 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // OPTIMIZED: Get ALL assigned files with limit to prevent huge queries
-    const allAssignedFilesSnapshot = await adminDb.collection('files')
-      .where('status', 'in', ['paid', 'assigned', 'in_progress'])
-      .limit(2000) // Limit to prevent huge queries
+    // Get ALL files to calculate both completed and pending counts per agent
+    const allFilesSnapshot = await adminDb.collection('files')
+      .limit(5000) // Reasonable limit
       .get();
 
-    // Build workload map from single query result
-    const workloadMap = new Map<string, number>();
-    allAssignedFilesSnapshot.docs.forEach(doc => {
-      const agentId = doc.data().assignedAgentId;
+    // Build comprehensive workload map: { agentId: { completed, pending, total } }
+    const workloadMap = new Map<string, { completed: number; pending: number; total: number }>();
+    
+    allFilesSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const agentId = data.assignedAgentId;
+      const status = data.status;
+      
       if (agentId) {
-        workloadMap.set(agentId, (workloadMap.get(agentId) || 0) + 1);
+        const current = workloadMap.get(agentId) || { completed: 0, pending: 0, total: 0 };
+        
+        // Count completed files
+        if (status === 'completed') {
+          current.completed++;
+        }
+        
+        // Count pending files (paid, assigned, processing)
+        if (status === 'paid' || status === 'assigned' || status === 'processing') {
+          current.pending++;
+        }
+        
+        current.total = current.completed + current.pending;
+        workloadMap.set(agentId, current);
       }
     });
 
-    // Calculate current workload for each agent (no additional queries needed!)
+    // Build agent workload array with detailed stats
     const agentWorkloads = agentsSnapshot.docs.map((agentDoc) => {
       const agentData = agentDoc.data();
       const agentId = agentDoc.id;
+      const workload = workloadMap.get(agentId) || { completed: 0, pending: 0, total: 0 };
 
       return {
         agentId,
         agentName: agentData.name || 'Unknown Agent',
         agentEmail: agentData.email || 'No email',
-        currentWorkload: workloadMap.get(agentId) || 0, // O(1) lookup
-        maxWorkload: agentData.maxWorkload || 20,
-        isActive: agentData.isActive || false,
-        lastAssigned: agentData.lastAssigned || null
+        completedFiles: workload.completed,
+        pendingFiles: workload.pending,
+        totalWorkload: workload.total,
+        isActive: agentData.isActive || false
       };
     });
 
-    // Sort agents by workload (least loaded first)
+    // SMART SORTING: Prioritize agents with less total work (completed + pending)
     const sortedAgents = agentWorkloads
       .filter(agent => agent.isActive)
       .sort((a, b) => {
-        // Primary sort: by current workload
-        if (a.currentWorkload !== b.currentWorkload) {
-          return a.currentWorkload - b.currentWorkload;
+        // Primary: Sort by total workload (less is better)
+        if (a.totalWorkload !== b.totalWorkload) {
+          return a.totalWorkload - b.totalWorkload;
         }
-        // Secondary sort: by last assigned time (oldest first)
-        if (a.lastAssigned && b.lastAssigned) {
-          return new Date(a.lastAssigned).getTime() - new Date(b.lastAssigned).getTime();
+        // Secondary: If total is same, prioritize less pending
+        if (a.pendingFiles !== b.pendingFiles) {
+          return a.pendingFiles - b.pendingFiles;
         }
-        // If one has no lastAssigned, prioritize it
-        if (!a.lastAssigned && b.lastAssigned) return -1;
-        if (a.lastAssigned && !b.lastAssigned) return 1;
-        return 0;
+        // Tertiary: If pending is same, prioritize less completed
+        return a.completedFiles - b.completedFiles;
       });
 
     if (sortedAgents.length === 0) {
@@ -91,40 +131,43 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // Assign files to agents using round-robin with workload consideration
-    const assignmentStart = Date.now();
+    console.log('Agent workloads before assignment:', sortedAgents.map(a => ({
+      name: a.agentName,
+      completed: a.completedFiles,
+      pending: a.pendingFiles,
+      total: a.totalWorkload
+    })));
+
+    // SMART DISTRIBUTION: Assign files in a way that prevents bulk assignments
     const assignments = [];
-    const agentUpdates = new Map<string, Date>();
     let agentIndex = 0;
 
-    // OPTIMIZED: Use Firestore batch writes (up to 500 operations per batch)
-    const batch = adminDb.batch();
+    // Use batch writes for efficiency
+    const batches: any[] = [];
+    let currentBatch = adminDb.batch();
     let operationCount = 0;
     const MAX_BATCH_SIZE = 500;
 
     for (const fileId of fileIds) {
-      // Find the best agent for this file
-      let selectedAgent = null;
-      
-      // Try to find an agent with available capacity
-      for (let i = 0; i < sortedAgents.length; i++) {
-        const agent = sortedAgents[agentIndex % sortedAgents.length];
-        agentIndex++;
-        
-        if (agent.currentWorkload < agent.maxWorkload) {
-          selectedAgent = agent;
-          break;
+      // Re-sort agents after each assignment to maintain fair distribution
+      sortedAgents.sort((a, b) => {
+        // Primary: Sort by pending files (current workload)
+        if (a.pendingFiles !== b.pendingFiles) {
+          return a.pendingFiles - b.pendingFiles;
         }
-      }
+        // Secondary: Sort by total workload
+        if (a.totalWorkload !== b.totalWorkload) {
+          return a.totalWorkload - b.totalWorkload;
+        }
+        return 0;
+      });
 
-      // If no agent has capacity, assign to the least loaded one
-      if (!selectedAgent) {
-        selectedAgent = sortedAgents[0];
-      }
+      // Select the agent with the least workload
+      const selectedAgent = sortedAgents[0];
 
       // Add file update to batch
       const fileRef = adminDb.collection('files').doc(fileId);
-      batch.update(fileRef, {
+      currentBatch.update(fileRef, {
         assignedAgentId: selectedAgent.agentId,
         assignedAt: new Date(),
         status: 'assigned',
@@ -132,48 +175,45 @@ export async function POST(request: NextRequest) {
       });
       operationCount++;
 
-      // Track agent update (will be batched later)
-      agentUpdates.set(selectedAgent.agentId, new Date());
-
-      // Update agent's workload count
-      selectedAgent.currentWorkload++;
+      // Update agent's pending and total workload for next iteration
+      selectedAgent.pendingFiles++;
+      selectedAgent.totalWorkload++;
 
       assignments.push({
         fileId,
         agentId: selectedAgent.agentId,
         agentName: selectedAgent.agentName,
-        workload: selectedAgent.currentWorkload
+        newPending: selectedAgent.pendingFiles,
+        newTotal: selectedAgent.totalWorkload
       });
 
       // Commit batch if we hit the limit
       if (operationCount >= MAX_BATCH_SIZE) {
-        await batch.commit();
-        console.log(`Auto-assign POST: Committed batch of ${operationCount} operations`);
+        batches.push(currentBatch);
+        currentBatch = adminDb.batch();
         operationCount = 0;
       }
     }
 
-    // Add agent updates to batch
-    agentUpdates.forEach((lastAssigned, agentId) => {
-      const agentRef = adminDb.collection('agents').doc(agentId);
-      batch.update(agentRef, {
-        lastAssigned,
-        updatedAt: new Date()
-      });
-      operationCount++;
-    });
-
-    // Commit any remaining operations
+    // Add remaining batch
     if (operationCount > 0) {
-      await batch.commit();
-      console.log(`Auto-assign POST: Final batch committed with ${operationCount} operations`);
+      batches.push(currentBatch);
     }
 
-    console.log(`Auto-assign POST: Assignment logic: ${Date.now() - assignmentStart}ms`);
+    // Commit all batches
+    await Promise.all(batches.map(batch => batch.commit()));
+    console.log(`Smart-assign: Committed ${batches.length} batch(es)`);
 
-    // Log the automatic assignment
+    console.log('Agent workloads after assignment:', sortedAgents.map(a => ({
+      name: a.agentName,
+      completed: a.completedFiles,
+      pending: a.pendingFiles,
+      total: a.totalWorkload
+    })));
+
+    // Log the assignment
     await adminDb.collection('logs').add({
-      action: 'auto_assignment',
+      action: 'smart_auto_assignment',
       adminId: admin.adminId,
       adminName: admin.name,
       fileIds: fileIds,
@@ -182,25 +222,42 @@ export async function POST(request: NextRequest) {
       timestamp: new Date()
     });
 
-    console.log(`Auto-assign POST total: ${Date.now() - startTime}ms`);
+    // Clear caches
+    serverCache.deleteByPrefix(makeKey('assign'));
+    serverCache.deleteByPrefix(makeKey('files'));
+    serverCache.deleteByPrefix(makeKey('agent-files'));
+    serverCache.deleteByPrefix(makeKey('agent-dashboard'));
+    
+    // CRITICAL: Clear user caches so users see updated file status (paid -> assigned/processing)
+    userIds.forEach(userId => {
+      serverCache.delete(makeKey('user_files', [userId]));
+    });
+
+    console.log(`Smart-assign total: ${Date.now() - startTime}ms`);
     return NextResponse.json({
       success: true,
-      message: `Successfully auto-assigned ${fileIds.length} file(s)`,
+      message: `Successfully assigned ${fileIds.length} file(s) using smart distribution`,
       assignments: assignments,
-      totalAssigned: fileIds.length
+      totalAssigned: fileIds.length,
+      distributionSummary: sortedAgents.map(a => ({
+        agentName: a.agentName,
+        completedFiles: a.completedFiles,
+        pendingFiles: a.pendingFiles,
+        totalWorkload: a.totalWorkload
+      }))
     });
 
   } catch (error: any) {
-    console.error('[PERF] Auto-assign POST error after:', Date.now() - startTime, 'ms');
-    console.error('Error in auto-assignment:', error);
+    console.error('[PERF] Smart-assign error after:', Date.now() - startTime, 'ms');
+    console.error('Error in smart assignment:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to auto-assign files' },
+      { success: false, error: 'Failed to assign files' },
       { status: 500 }
     );
   }
 }
 
-// GET - Get assignment statistics and agent workload
+// GET - Get comprehensive assignment statistics showing completed and pending files
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
   try {
@@ -209,65 +266,88 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-
     // Get all active agents
-    const agentsQueryStart = Date.now();
     const agentsSnapshot = await adminDb.collection('agents')
       .where('isActive', '==', true)
       .get();
-    console.log(`Auto-assign GET: Agents query: ${Date.now() - agentsQueryStart}ms, count: ${agentsSnapshot.size}`);
 
-    // OPTIMIZED: Get ALL assigned files with limit to prevent huge queries
-    const allAssignedFilesSnapshot = await adminDb.collection('files')
-      .where('status', 'in', ['paid', 'assigned', 'in_progress'])
-      .limit(2000) // Limit to prevent huge queries
+    // Get ALL files to calculate both completed and pending counts per agent
+    const allFilesSnapshot = await adminDb.collection('files')
+      .limit(5000) // Reasonable limit
       .get();
 
-    // Build workload map from single query result
-    const workloadMap = new Map<string, number>();
-    allAssignedFilesSnapshot.docs.forEach(doc => {
-      const agentId = doc.data().assignedAgentId;
+    // Build comprehensive workload map
+    const workloadMap = new Map<string, { completed: number; pending: number; total: number }>();
+    let totalUnassigned = 0;
+    
+    allFilesSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const agentId = data.assignedAgentId;
+      const status = data.status;
+      
       if (agentId) {
-        workloadMap.set(agentId, (workloadMap.get(agentId) || 0) + 1);
+        const current = workloadMap.get(agentId) || { completed: 0, pending: 0, total: 0 };
+        
+        if (status === 'completed') {
+          current.completed++;
+        }
+        
+        if (status === 'paid' || status === 'assigned' || status === 'processing') {
+          current.pending++;
+        }
+        
+        current.total = current.completed + current.pending;
+        workloadMap.set(agentId, current);
+      } else if (status === 'paid') {
+        totalUnassigned++;
       }
     });
 
-    // Calculate agent workloads (no additional queries!)
+    // Build comprehensive agent workload data
     const agentWorkloads = agentsSnapshot.docs.map((agentDoc) => {
       const agentData = agentDoc.data();
       const agentId = agentDoc.id;
+      const workload = workloadMap.get(agentId) || { completed: 0, pending: 0, total: 0 };
 
       return {
         agentId,
         agentName: agentData.name || 'Unknown Agent',
         agentEmail: agentData.email || 'No email',
-        currentWorkload: workloadMap.get(agentId) || 0,
-        maxWorkload: agentData.maxWorkload || 20,
-        isActive: agentData.isActive || false,
-        lastAssigned: agentData.lastAssigned || null
+        completedFiles: workload.completed,
+        pendingFiles: workload.pending,
+        totalWorkload: workload.total,
+        isActive: agentData.isActive || false
       };
     });
 
-    // Get unassigned paid files with limit
-    const unassignedFilesSnapshot = await adminDb.collection('files')
-      .where('status', '==', 'paid')
-      .where('assignedAgentId', '==', null)
-      .limit(1000) // Limit to prevent huge queries
-      .get();
+    // Sort by total workload
+    agentWorkloads.sort((a, b) => {
+      if (a.totalWorkload !== b.totalWorkload) {
+        return a.totalWorkload - b.totalWorkload;
+      }
+      if (a.pendingFiles !== b.pendingFiles) {
+        return a.pendingFiles - b.pendingFiles;
+      }
+      return a.completedFiles - b.completedFiles;
+    });
     
-    console.log(`Auto-assign GET total: ${Date.now() - startTime}ms`);
+    console.log(`Smart-assign GET total: ${Date.now() - startTime}ms`);
     return NextResponse.json({
       success: true,
       data: {
-        agentWorkloads: agentWorkloads.sort((a, b) => a.currentWorkload - b.currentWorkload),
-        unassignedFiles: unassignedFilesSnapshot.size,
+        agentWorkloads: agentWorkloads,
+        unassignedFiles: totalUnassigned,
         totalAgents: agentWorkloads.length,
-        activeAgents: agentWorkloads.filter(a => a.isActive).length
+        activeAgents: agentWorkloads.filter(a => a.isActive).length,
+        distributionSummary: {
+          mostLoaded: agentWorkloads[agentWorkloads.length - 1],
+          leastLoaded: agentWorkloads[0]
+        }
       }
     });
 
   } catch (error: any) {
-    console.error('[PERF] Auto-assign GET error after:', Date.now() - startTime, 'ms');
+    console.error('[PERF] Smart-assign GET error after:', Date.now() - startTime, 'ms');
     console.error('Error fetching assignment stats:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch assignment statistics' },

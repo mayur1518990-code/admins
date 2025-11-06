@@ -85,13 +85,11 @@ export async function verifyAgentAuth() {
       serverCache.set(cacheKey, agentInfo, 5 * 60 * 1000);
       return agentInfo;
     } catch (tokenError) {
-      console.error('[AUTH] Token verification failed:', tokenError);
       throw tokenError;
     }
   } catch (error) {
-    // OPTIMIZATION: Only use fallback in dev environment, not production
+    // OPTIMIZED: Only use fallback in dev environment, not production
     if (process.env.NODE_ENV === 'development') {
-      
       const defaultAgent = await getDefaultAgent();
       return defaultAgent;
     }

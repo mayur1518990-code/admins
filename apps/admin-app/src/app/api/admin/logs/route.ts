@@ -19,42 +19,36 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom') || '';
     const dateTo = searchParams.get('dateTo') || '';
 
-    const cacheKey = makeKey('logs', ['list']);
+    const cacheKey = makeKey('logs', ['list', page, limit, action || 'all', dateFrom || '', dateTo || '', search]);
     const cached = serverCache.get<any>(cacheKey);
     if (cached) return NextResponse.json(cached);
 
-    const logsSnapshot = await adminDb.collection('logs').get();
+    // OPTIMIZED: Build query with database-level filters
+    let query: FirebaseFirestore.Query = adminDb.collection('logs');
     
-    // Filter logs by criteria
-    let logs = logsSnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .sort((a, b) => {
-        const aTime = a.timestamp?.toDate?.() || new Date(0);
-        const bTime = b.timestamp?.toDate?.() || new Date(0);
-        return bTime.getTime() - aTime.getTime();
-      });
-
-    // Apply action filter
+    // Apply action filter at database level (uses composite index)
     if (action !== 'all') {
-      logs = logs.filter(log => log.action === action);
+      query = query.where('action', '==', action);
     }
-
-    // Apply date range filter
+    
+    // Apply date range filter at database level
     if (dateFrom) {
       const fromDate = new Date(dateFrom);
-      logs = logs.filter(log => {
-        const logDate = log.timestamp?.toDate?.() || new Date(0);
-        return logDate >= fromDate;
-      });
+      query = query.where('timestamp', '>=', fromDate);
     }
-
+    
     if (dateTo) {
       const toDate = new Date(dateTo);
-      logs = logs.filter(log => {
-        const logDate = log.timestamp?.toDate?.() || new Date(0);
-        return logDate <= toDate;
-      });
+      query = query.where('timestamp', '<=', toDate);
     }
+    
+    // CRITICAL: Order by timestamp and limit to prevent fetching ALL logs
+    query = query.orderBy('timestamp', 'desc').limit(Math.min(limit * 2, 1000));
+    
+    const logsSnapshot = await query.get();
+    
+    // Map logs (no need to sort, already ordered by database)
+    let logs = logsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
 
     // Apply search filter
     if (search) {

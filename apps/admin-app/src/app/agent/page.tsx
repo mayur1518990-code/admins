@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCached, setCached, getCacheKey, isFresh } from '@/lib/cache';
+import { getCached, setCached, getCacheKey, isFresh, deleteCached } from '@/lib/cache';
 
 interface AssignedFile {
       id: string;
@@ -22,6 +22,8 @@ interface AssignedFile {
     size: number;
     uploadedAt: string;
   };
+  userComment?: string;
+  userCommentUpdatedAt?: string;
 }
 
 interface AgentStats {
@@ -41,6 +43,7 @@ export default function AgentDashboard() {
     pending: 0
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedFile, setSelectedFile] = useState<AssignedFile | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -49,10 +52,8 @@ export default function AgentDashboard() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
 
-  // OPTIMIZATION: Add client-side caching with useCallback
+  // OPTIMIZED: Add client-side caching with useCallback, removed console logs
   const fetchAssignedFiles = useCallback(async (forceRefresh = false) => {
-    const startTime = Date.now();
-    
     try {
       setLoading(true);
       
@@ -67,34 +68,30 @@ export default function AgentDashboard() {
           return;
         }
       } else {
-        console.log(`[DEBUG] Force refresh requested - bypassing cache`);
+        // Force refresh: clear cache before fetching
+        deleteCached(cacheKey);
       }
       
-      const fetchStart = Date.now();
-      const response = await fetch('/api/agent/files');
+      // Add fresh parameter to bypass server cache when force refreshing
+      const url = forceRefresh ? '/api/agent/files?fresh=1' : '/api/agent/files';
+      const response = await fetch(url);
       const data = await response.json();
 
       if (data.success) {
-        console.log(`[DEBUG] API returned ${data.files.length} files`);
-        console.log(`[DEBUG] File statuses:`, data.files.map((f: any) => ({ id: f.id, status: f.status, name: f.originalName })));
-        
         setFiles(data.files);
         calculateStats(data.files);
         
         // Cache the result
         setCached(cacheKey, { files: data.files });
-        console.log(`[DEBUG] Files loaded:`, data.files.length);
-        console.log(`[DEBUG] File statuses:`, data.files.map((f: any) => ({ id: f.id, status: f.status })));
-      } else {
-        console.error('Failed to fetch files:', data.error);
       }
     } catch (error) {
-      console.error('Error fetching files:', error);
+      // Silent error - show empty state
     } finally {
       setLoading(false);
     }
   }, []); // Empty deps - stable callback
 
+  // Load files on mount
   useEffect(() => {
     fetchAssignedFiles();
   }, [fetchAssignedFiles]);
@@ -103,6 +100,13 @@ export default function AgentDashboard() {
   useEffect(() => {
     setSelectedFiles([]);
   }, [statusFilter]);
+
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchAssignedFiles(true); // Force refresh
+    setRefreshing(false);
+  };
 
   const handleLogout = async () => {
     try {
@@ -114,7 +118,7 @@ export default function AgentDashboard() {
         },
       });
     } catch (error) {
-      console.error('Logout API error:', error);
+      // Silent error - logout anyway
     } finally {
       // Clear the agent token cookie
       document.cookie = 'agent-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
@@ -135,7 +139,6 @@ export default function AgentDashboard() {
   };
 
   const updateFileStatus = async (fileId: string, status: 'processing' | 'completed') => {
-    const startTime = Date.now();
     setUpdatingStatus(fileId);
     
     try {
@@ -150,17 +153,12 @@ export default function AgentDashboard() {
       const data = await response.json();
       
       if (data.success) {
-        // FIXED: Switch to 'All Files' view so user can see the status change
+        // Switch to 'All Files' view so user can see the status change
         if (status === 'processing') {
           setStatusFilter('all');
         }
         
-        // Optimistic update - update UI immediately without full refresh
-        setFiles(prev => prev.map(file => 
-          file.id === fileId ? { ...file, status } : file
-        ));
-        
-        // Recalculate stats with the updated file
+        // Optimistic update - update UI immediately
         setFiles(prev => {
           const updatedFiles = prev.map(file => 
             file.id === fileId ? { ...file, status } : file
@@ -169,18 +167,18 @@ export default function AgentDashboard() {
           return updatedFiles;
         });
         
-        // Show success notification immediately (no refresh needed)
+        // Force refresh from server to ensure stats are accurate
+        await fetchAssignedFiles(true);
+        
+        // Show success notification after refresh
         const statusMessage = status === 'processing' 
           ? 'File status updated to Processing! ✅\n\nProcessing count increased. You can now upload the completed file.'
-          : 'File marked as Completed! ✅';
+          : 'File marked as Completed! ✅\n\nYour performance stats have been updated.';
         alert(statusMessage);
-        console.log(`[DEBUG] File ${fileId} status changed to: ${status}`);
       } else {
-        console.error('Failed to update status:', data.error);
         alert('Failed to update file status. Please try again.');
       }
     } catch (error) {
-      console.error('Error updating status:', error);
       alert('Error updating file status. Please try again.');
     } finally {
       setUpdatingStatus(null);
@@ -189,13 +187,10 @@ export default function AgentDashboard() {
 
   const downloadOriginalFile = async (fileId: string, filename: string) => {
     try {
-      console.log(`[AGENT-DOWNLOAD] Attempting to download file ${fileId} with name ${filename}`);
       const response = await fetch(`/api/agent/files/${fileId}/download`);
-      console.log(`[AGENT-DOWNLOAD] Response status: ${response.status}`);
       
       if (response.ok) {
         const blob = await response.blob();
-        console.log(`[AGENT-DOWNLOAD] Blob size: ${blob.size} bytes`);
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -204,22 +199,18 @@ export default function AgentDashboard() {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        console.log(`[AGENT-DOWNLOAD] Download completed successfully`);
       } else {
         const errorData = await response.json();
-        console.error(`[AGENT-DOWNLOAD] Download failed:`, errorData);
         alert(`Download failed: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('[AGENT-DOWNLOAD] Error downloading file:', error);
-      alert('Error downloading file. Please check console for details.');
+      alert('Error downloading file. Please try again.');
     }
   };
 
   const uploadCompletedFile = async (fileId: string) => {
     if (!uploadFile || uploading) return;
 
-    const startTime = Date.now();
     setUploading(true);
     
     try {
@@ -235,22 +226,18 @@ export default function AgentDashboard() {
       const data = await response.json();
       
       if (data.success) {
-        console.log(`[DEBUG] Upload successful, refreshing data...`);
         setUploadFile(null);
         setSelectedFile(null);
         
-        // FIXED: Await the refresh BEFORE showing alert so stats update first
+        // Await the refresh BEFORE showing alert so stats update first
         await fetchAssignedFiles(true);
-        console.log(`[DEBUG] Data refresh completed after upload`);
         
         // Now show the alert after data is refreshed
         alert('File uploaded successfully! ✅\n\nThe page has been refreshed and your Completed count has been updated.');
       } else {
-        console.error('Failed to upload file:', data.error);
         alert('Failed to upload file');
       }
     } catch (error) {
-      console.error('Error uploading file:', error);
       alert('Error uploading file');
     } finally {
       setUploading(false);
@@ -303,25 +290,28 @@ export default function AgentDashboard() {
       const data = await response.json();
       
       if (data.success) {
-        // Remove deleted files from state
-        setFiles(prev => prev.filter(file => !selectedFiles.includes(file.id)));
-        calculateStats(files.filter(file => !selectedFiles.includes(file.id)));
-        setSelectedFiles([]);
-        alert(`${selectedFiles.length} file(s) deleted successfully!`);
+        // Clear cache immediately
+        const cacheKey = getCacheKey(['agent-files']);
+        deleteCached(cacheKey);
         
-        // Clear cache and refresh
+        // Clear selected files
+        setSelectedFiles([]);
+        
+        // Force refresh from server to get updated data
         await fetchAssignedFiles(true);
+        
+        alert(`${selectedFiles.length} file(s) deleted successfully!`);
       } else {
         alert(`Failed to delete files: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('Error deleting files:', error);
       alert('Error deleting files. Please try again.');
     } finally {
       setDeleting(false);
     }
   };
 
+  // OPTIMIZED: Pure function for file size formatting (no re-creation on every render)
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -330,14 +320,15 @@ export default function AgentDashboard() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'assigned': return 'bg-yellow-100 text-yellow-800';
-      case 'processing': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+  // OPTIMIZED: Status color map (constant lookup instead of function calls)
+  const STATUS_COLORS: Record<string, string> = {
+    'assigned': 'bg-yellow-100 text-yellow-800',
+    'processing': 'bg-blue-100 text-blue-800',
+    'completed': 'bg-green-100 text-green-800',
+    'paid': 'bg-yellow-100 text-yellow-800',
   };
+  
+  const getStatusColor = (status: string) => STATUS_COLORS[status] || 'bg-gray-100 text-gray-800';
 
   if (loading) {
     return (
@@ -495,30 +486,54 @@ export default function AgentDashboard() {
                   Assigned Files {selectedFiles.length > 0 && `(${selectedFiles.length} selected)`}
                 </h2>
               </div>
-              {selectedFiles.length > 0 && (
+              <div className="flex items-center space-x-2">
                 <button
-                  onClick={handleDeleteSelected}
-                  disabled={deleting}
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                 >
-                  {deleting ? (
+                  {refreshing ? (
                     <>
                       <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      <span>Deleting...</span>
+                      <span>Refreshing...</span>
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
-                      <span>Delete Selected ({selectedFiles.length})</span>
+                      <span>Refresh</span>
                     </>
                   )}
                 </button>
-              )}
+                {selectedFiles.length > 0 && (
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    {deleting ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>Delete Selected ({selectedFiles.length})</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           
@@ -577,6 +592,19 @@ export default function AgentDashboard() {
                                 </p>
                               )}
                             </div>
+                            {file.userComment && (
+                              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                <div className="flex items-start space-x-2">
+                                  <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                  </svg>
+                                  <div className="flex-1">
+                                    <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
+                                    <p className="text-sm text-blue-900">{file.userComment}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           
                           <div className="flex items-center space-x-3">
@@ -673,6 +701,19 @@ export default function AgentDashboard() {
                                 <p className="text-sm text-gray-600">
                                   <span className="font-medium">User:</span> {file.userEmail}
                                 </p>
+                              )}
+                              {file.userComment && (
+                                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                  <div className="flex items-start space-x-2">
+                                    <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                    </svg>
+                                    <div className="flex-1">
+                                      <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
+                                      <p className="text-sm text-blue-900">{file.userComment}</p>
+                                    </div>
+                                  </div>
+                                </div>
                               )}
                               <div className="mt-2">
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>

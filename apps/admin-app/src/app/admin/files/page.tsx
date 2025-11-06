@@ -132,7 +132,7 @@ export default function FilesPage() {
     }
     
     // Build the Firestore query based on current filters
-    let firestoreQuery = collection(db, 'files');
+    let firestoreQuery = collection(db!, 'files');
     let q = query(firestoreQuery);
     
     // Apply status filter

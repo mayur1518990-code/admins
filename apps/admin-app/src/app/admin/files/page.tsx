@@ -120,16 +120,30 @@ export default function FilesPage() {
   // REAL-TIME FIRESTORE LISTENER
   // This replaces the need for manual refresh and enables instant updates
   useEffect(() => {
+    console.log('[Files Page] Real-time listener check:', {
+      authLoading,
+      isAuthenticated,
+      dbAvailable: !!db,
+      willUseRealtime: !authLoading && isAuthenticated && !!db
+    });
+
     // Wait for Firebase authentication before setting up listener
     if (authLoading) {
+      console.log('[Files Page] Waiting for auth to complete...');
       return;
     }
     
     if (!isAuthenticated || !db) {
       // Fallback to regular API loading if not authenticated or Firebase not initialized
+      console.log('[Files Page] Falling back to API loading. Reason:', {
+        notAuthenticated: !isAuthenticated,
+        dbNotAvailable: !db
+      });
       loadFiles(true);
       return;
     }
+    
+    console.log('[Files Page] Setting up Firestore real-time listener...');
     
     // Build the Firestore query based on current filters
     let firestoreQuery = collection(db, 'files');
@@ -506,12 +520,8 @@ export default function FilesPage() {
         throw new Error(result.error || 'Failed to assign files');
       }
       
-      // Clear cache and immediately refresh to show updated assignments
+      // Don't call loadFiles here - let real-time listener handle the update
       deleteCached(getCacheKey(['admin-files']));
-      
-      // Force immediate refresh via API to update UI instantly
-      // Real-time listener will continue to work for future updates
-      await loadFiles(true);
       
     } catch (error: any) {
       // Silent fail - real-time updates will retry
@@ -561,9 +571,7 @@ export default function FilesPage() {
       ).join('\n');
       
       deleteCached(getCacheKey(['admin-files']));
-      
-      // Force immediate refresh to show updated assignments instantly
-      await loadFiles(true);
+      // Don't reload - real-time listener will update
       
       alert(
         `Smart Assignment Completed!\n\n` +

@@ -25,7 +25,7 @@ export function useFirebaseAuth() {
     const signIn = async () => {
       try {
         console.log('[Firebase Auth] Signing in with custom token...');
-        const userCredential = await signInWithCustomToken(auth, customToken);
+        const userCredential = await signInWithCustomToken(auth!, customToken);
         console.log('[Firebase Auth] Successfully authenticated:', userCredential.user.uid);
         setUser(userCredential.user);
         setError(null);
@@ -38,7 +38,7 @@ export function useFirebaseAuth() {
     };
 
     // Listen to auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth!, (currentUser) => {
       if (currentUser) {
         console.log('[Firebase Auth] User authenticated:', currentUser.uid);
         setUser(currentUser);

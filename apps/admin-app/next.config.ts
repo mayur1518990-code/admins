@@ -14,7 +14,6 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   
   // Performance optimizations
-  swcMinify: true, // Use SWC for faster minification
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production' ? {
       exclude: ['error', 'warn'], // Keep error and warn logs

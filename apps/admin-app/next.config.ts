@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
   
   // Experimental features for better performance
   experimental: {
-    optimizeCss: true,
+    // optimizeCss: true, // Disabled - requires 'critters' package which causes build issues with Turbopack
     optimizePackageImports: ['react-icons', 'lucide-react'],
   },
 };

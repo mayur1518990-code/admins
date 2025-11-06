@@ -506,8 +506,12 @@ export default function FilesPage() {
         throw new Error(result.error || 'Failed to assign files');
       }
       
-      // Don't call loadFiles here - let real-time listener handle the update
+      // Clear cache and immediately refresh to show updated assignments
       deleteCached(getCacheKey(['admin-files']));
+      
+      // Force immediate refresh via API to update UI instantly
+      // Real-time listener will continue to work for future updates
+      await loadFiles(true);
       
     } catch (error: any) {
       // Silent fail - real-time updates will retry
@@ -557,7 +561,9 @@ export default function FilesPage() {
       ).join('\n');
       
       deleteCached(getCacheKey(['admin-files']));
-      // Don't reload - real-time listener will update
+      
+      // Force immediate refresh to show updated assignments instantly
+      await loadFiles(true);
       
       alert(
         `Smart Assignment Completed!\n\n` +

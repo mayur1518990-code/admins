@@ -12,6 +12,13 @@ export function useFirebaseAuth() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Check if Firebase auth is available
+    if (!auth) {
+      console.warn('[Firebase Auth] Firebase auth not initialized, skipping client auth');
+      setLoading(false);
+      return;
+    }
+
     // Check if admin is logged in via cookie
     const customToken = getCookie('admin-token');
     

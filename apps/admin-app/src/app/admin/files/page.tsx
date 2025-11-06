@@ -125,14 +125,14 @@ export default function FilesPage() {
       return;
     }
     
-    if (!isAuthenticated) {
-      // Fallback to regular API loading
+    if (!isAuthenticated || !db) {
+      // Fallback to regular API loading if not authenticated or Firebase not initialized
       loadFiles(true);
       return;
     }
     
     // Build the Firestore query based on current filters
-    let firestoreQuery = collection(db!, 'files');
+    let firestoreQuery = collection(db, 'files');
     let q = query(firestoreQuery);
     
     // Apply status filter

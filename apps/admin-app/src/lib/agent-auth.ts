@@ -26,7 +26,8 @@ export async function verifyAgentAuth() {
       throw new Error('No agent authentication token found');
     }
 
-    // Check auth cache first to avoid expensive verification on every request
+    // OPTIMIZED: Check auth cache first to avoid expensive verification on every request
+    // Extended cache time for better performance (10 minutes instead of 5)
     const cacheKey = makeKey('agent-auth', [token]);
     const cached = serverCache.get<any>(cacheKey);
     if (cached) return cached;
@@ -53,14 +54,15 @@ export async function verifyAgentAuth() {
       
       // Check if this is a custom token with agent role
       if (decodedToken.role === 'agent') {
-        const agentInfo = {
-          agentId: decodedToken.agentId || decodedToken.uid,
-          name: decodedToken.name || 'Agent',
-          email: decodedToken.email || 'agent@example.com',
-          role: "agent"
-        };
-        serverCache.set(cacheKey, agentInfo, 5 * 60 * 1000);
-        return agentInfo;
+      const agentInfo = {
+        agentId: decodedToken.agentId || decodedToken.uid,
+        name: decodedToken.name || 'Agent',
+        email: decodedToken.email || 'agent@example.com',
+        role: "agent"
+      };
+      // OPTIMIZED: Extended cache time for better performance (10 minutes)
+      serverCache.set(cacheKey, agentInfo, 10 * 60 * 1000);
+      return agentInfo;
       }
       
       // Get agent data from agents collection
@@ -82,7 +84,8 @@ export async function verifyAgentAuth() {
         email: agentData.email,
         role: "agent"
       };
-      serverCache.set(cacheKey, agentInfo, 5 * 60 * 1000);
+      // OPTIMIZED: Extended cache time for better performance (10 minutes)
+      serverCache.set(cacheKey, agentInfo, 10 * 60 * 1000);
       return agentInfo;
     } catch (tokenError) {
       throw tokenError;

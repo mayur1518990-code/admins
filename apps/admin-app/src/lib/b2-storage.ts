@@ -279,30 +279,81 @@ export async function fileExistsInB2(key: string): Promise<boolean> {
 /**
  * Generate a pre-signed URL for direct download
  * @param key - The file key/path in B2
+ * @param filename - The filename to use for download (forces Content-Disposition: attachment)
  * @param expiresIn - URL expiration time in seconds (default: 3600 = 1 hour)
  * @returns Pre-signed URL
  */
 export async function generatePresignedDownloadUrl(
   key: string,
+  filename: string,
   expiresIn: number = 3600
 ): Promise<string> {
   try {
     const client = getB2Client();
     const bucket = getBucketName();
 
+    // Force download with Content-Disposition header
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
     });
 
     const url = await getSignedUrl(client, command, { expiresIn });
 
-    console.log(`Generated pre-signed URL for: ${key}`);
+    console.log(`Generated pre-signed download URL for: ${key}`);
 
     return url;
   } catch (error: any) {
     console.error('B2 pre-signed URL generation error:', error);
     throw new Error(`Failed to generate pre-signed URL: ${error.message}`);
+  }
+}
+
+/**
+ * Generate a pre-signed URL for direct upload
+ * @param key - The file key/path in B2
+ * @param contentType - MIME type of the file
+ * @param expiresIn - URL expiration time in seconds (default: 3600 = 1 hour)
+ * @returns Pre-signed URL
+ */
+export async function generatePresignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresIn: number = 3600
+): Promise<string> {
+  try {
+    console.log('[B2] Initializing client for upload URL...');
+    const client = getB2Client();
+    const bucket = getBucketName();
+    
+    console.log('[B2] Bucket:', bucket);
+    console.log('[B2] Key:', key);
+    console.log('[B2] ContentType:', contentType);
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      ServerSideEncryption: 'AES256',
+    });
+
+    console.log('[B2] Generating signed URL...');
+    const url = await getSignedUrl(client, command, { expiresIn });
+
+    console.log(`[B2] ✅ Generated pre-signed upload URL for: ${key}`);
+    console.log(`[B2] URL: ${url.substring(0, 100)}...`);
+
+    return url;
+  } catch (error: any) {
+    console.error('[B2] ❌ Pre-signed upload URL generation error:', error);
+    console.error('[B2] Error details:', {
+      message: error.message,
+      name: error.name,
+      code: error.code,
+      stack: error.stack
+    });
+    throw new Error(`Failed to generate pre-signed upload URL: ${error.message}`);
   }
 }
 

@@ -145,6 +145,21 @@ export default function AgentDashboard() {
     setUpdatingStatus(fileId);
     
     try {
+      // OPTIMIZED: Optimistic UI update first (instant feedback)
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => 
+          file.id === fileId ? { ...file, status } : file
+        );
+        calculateStats(updatedFiles);
+        return updatedFiles;
+      });
+      
+      // Switch to 'All Files' view so user can see the status change
+      if (status === 'processing') {
+        setStatusFilter('all');
+      }
+      
+      // Update server in background
       const response = await fetch(`/api/agent/files/${fileId}/status`, {
         method: 'PATCH',
         headers: {
@@ -156,32 +171,24 @@ export default function AgentDashboard() {
       const data = await response.json();
       
       if (data.success) {
-        // Switch to 'All Files' view so user can see the status change
-        if (status === 'processing') {
-          setStatusFilter('all');
-        }
-        
-        // Optimistic update - update UI immediately
-        setFiles(prev => {
-          const updatedFiles = prev.map(file => 
-            file.id === fileId ? { ...file, status } : file
-          );
-          calculateStats(updatedFiles);
-          return updatedFiles;
-        });
-        
-        // Force refresh from server to ensure stats are accurate
-        await fetchAssignedFiles(true);
-        
-        // Show success notification after refresh
+        // Show success notification immediately (don't wait for refresh)
         const statusMessage = status === 'processing' 
-          ? 'File status updated to Processing! ✅\n\nProcessing count increased. You can now upload the completed file.'
-          : 'File marked as Completed! ✅\n\nYour performance stats have been updated.';
+          ? 'File status updated to Processing! ✅\n\nYou can now upload the completed file.'
+          : 'File marked as Completed! ✅';
         alert(statusMessage);
+        
+        // Refresh in background to sync with server
+        fetchAssignedFiles(true).catch(() => {
+          // Silent error - UI is already updated
+        });
       } else {
+        // Revert optimistic update on error
+        await fetchAssignedFiles(true);
         alert('Failed to update file status. Please try again.');
       }
     } catch (error) {
+      // Revert optimistic update on error
+      await fetchAssignedFiles(true);
       alert('Error updating file status. Please try again.');
     } finally {
       setUpdatingStatus(null);
@@ -190,18 +197,18 @@ export default function AgentDashboard() {
 
   const downloadOriginalFile = async (fileId: string, filename: string) => {
     try {
-      const response = await fetch(`/api/agent/files/${fileId}/download`);
+      // OPTIMIZED: Get pre-signed URL (instant response <100ms)
+      const response = await fetch(`/api/agent/files/${fileId}/download-url`);
       
       if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        const data = await response.json();
+        if (data.success && data.downloadUrl) {
+          // FIXED: Direct download using window.location or iframe
+          // The Content-Disposition: attachment header forces download
+          window.location.href = data.downloadUrl;
+        } else {
+          alert(`Download failed: ${data.error || 'Unknown error'}`);
+        }
       } else {
         const errorData = await response.json();
         alert(`Download failed: ${errorData.error || 'Unknown error'}`);
@@ -217,6 +224,8 @@ export default function AgentDashboard() {
     setUploading(true);
     
     try {
+      // Use reliable server upload method
+      console.log('[UPLOAD] Starting upload via server...');
       const formData = new FormData();
       formData.append('file', uploadFile);
       formData.append('fileId', fileId);
@@ -226,7 +235,15 @@ export default function AgentDashboard() {
         body: formData
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('[UPLOAD] Server returned error:', errorData);
+        alert(`Failed to upload file: ${errorData.error || 'Unknown error'}`);
+        return;
+      }
+
       const data = await response.json();
+      console.log('[UPLOAD] Server response:', data);
       
       if (data.success) {
         setUploadFile(null);
@@ -238,10 +255,11 @@ export default function AgentDashboard() {
         // Now show the alert after data is refreshed
         alert('File uploaded successfully! ✅\n\nThe page has been refreshed and your Completed count has been updated.');
       } else {
-        alert('Failed to upload file');
+        alert(`Failed to upload file: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
-      alert('Error uploading file');
+      console.error('[UPLOAD] Error:', error);
+      alert(`Error uploading file: ${error instanceof Error ? error.message : 'Please try again.'}`);
     } finally {
       setUploading(false);
     }

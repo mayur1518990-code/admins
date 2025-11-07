@@ -1,23 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFirestore } from "firebase-admin/firestore";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { adminDb } from "@/lib/firebase-admin";
 
-// Initialize Firebase Admin
-if (!getApps().length) {
-  try {
-    initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-      }),
-    });
-  } catch (error) {
-    console.error("Firebase admin initialization error:", error);
-  }
-}
-
-const db = getFirestore();
+const db = adminDb;
 
 // GET - Fetch all alerts
 export async function GET(request: NextRequest) {
@@ -52,9 +36,13 @@ export async function GET(request: NextRequest) {
 // POST - Create new alert
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Alerts API] POST - Starting alert creation...');
+    
     const adminToken = request.cookies.get("admin-token")?.value;
+    console.log('[Alerts API] Admin token present:', !!adminToken);
     
     if (!adminToken) {
+      console.log('[Alerts API] No admin token, returning 401');
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -62,9 +50,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    console.log('[Alerts API] Request body:', body);
     const { message, type, isActive } = body;
 
     if (!message || !type) {
+      console.log('[Alerts API] Missing message or type, returning 400');
       return NextResponse.json(
         { error: "Message and type are required" },
         { status: 400 }
@@ -80,17 +70,28 @@ export async function POST(request: NextRequest) {
       createdBy: "admin",
     };
 
+    console.log('[Alerts API] Alert data prepared:', alertData);
+    console.log('[Alerts API] Firestore db available:', !!db);
+    
     const docRef = await db.collection("alerts").add(alertData);
+    console.log('[Alerts API] Alert created successfully with ID:', docRef.id);
 
     return NextResponse.json({
       success: true,
       id: docRef.id,
       alert: { id: docRef.id, ...alertData },
     });
-  } catch (error) {
-    console.error("Error creating alert:", error);
+  } catch (error: any) {
+    console.error('[Alerts API] Error creating alert:', error);
+    console.error('[Alerts API] Error message:', error?.message);
+    console.error('[Alerts API] Error stack:', error?.stack);
+    console.error('[Alerts API] Environment check:', {
+      hasProjectId: !!process.env.FIREBASE_PROJECT_ID,
+      hasClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
+      hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+    });
     return NextResponse.json(
-      { error: "Failed to create alert" },
+      { error: "Failed to create alert", details: error?.message },
       { status: 500 }
     );
   }

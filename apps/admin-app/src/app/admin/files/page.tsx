@@ -745,8 +745,8 @@ export default function FilesPage() {
         />
         <main className="flex-1 p-6 mobile-app-content">
         <div className="max-w-7xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
-            <div>
+          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+            <div className="space-y-2">
               <h1 className="text-3xl font-bold text-gray-900">
                 File Management
               </h1>
@@ -762,11 +762,11 @@ export default function FilesPage() {
                 </div>
               )}
             </div>
-            <div className="flex space-x-3">
+            <div className="flex flex-col sm:flex-row md:justify-end gap-3 w-full md:w-auto">
               <button
                 onClick={handleDeleteSelected}
                 disabled={selectedFiles.length === 0}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed w-full sm:w-auto"
                 title="Delete all selected files (includes B2 storage cleanup)"
               >
                 Delete Selected ({selectedFiles.length})
@@ -774,7 +774,7 @@ export default function FilesPage() {
               <button
                 onClick={handleSmartAutoAssign}
                 disabled={isAutoAssigning}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center w-full sm:w-auto"
                 title="Smart assignment based on agent workload (completed + pending files)"
               >
                 {isAutoAssigning ? (
@@ -797,7 +797,7 @@ export default function FilesPage() {
               <button
                 onClick={() => setShowAssignModal(true)}
                 disabled={selectedFiles.length === 0}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed w-full sm:w-auto"
               >
                 Assign Selected ({selectedFiles.length})
               </button>

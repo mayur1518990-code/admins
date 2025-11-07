@@ -4,6 +4,18 @@ import { serverCache, makeKey } from "@/lib/server-cache";
 import { verifyAdminAuth, getQueryParams } from "@/lib/admin-auth";
 import { deleteFromB2 } from "@/lib/b2-storage";
 
+const applyDevCors = (response: NextResponse) => {
+  if (process.env.NODE_ENV !== "production") {
+    const devOrigin = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    response.headers.set("Access-Control-Allow-Origin", devOrigin);
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+    response.headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+
+  return response;
+};
+
 // Helper function to handle Firestore connection issues with retry logic
 async function withRetry<T>(
   operation: () => Promise<T>,
@@ -49,7 +61,7 @@ export async function GET(request: NextRequest) {
     // Verify admin authentication
     const admin = await verifyAdminAuth();
     if (!admin) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return applyDevCors(NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }));
     }
 
     const { searchParams } = new URL(request.url);
@@ -62,7 +74,7 @@ export async function GET(request: NextRequest) {
     const cacheKey = makeKey('users', ['list', role || 'all', status || 'all', limit, offset, search]);
     const cached = serverCache.get<any>(cacheKey);
     if (cached) {
-      return NextResponse.json(cached);
+      return applyDevCors(NextResponse.json(cached));
     }
 
     // Define collections to query based on role filter
@@ -188,32 +200,32 @@ export async function GET(request: NextRequest) {
     };
     
     serverCache.set(cacheKey, payload, 300_000); // 5 min cache
-    return NextResponse.json(payload);
+    return applyDevCors(NextResponse.json(payload));
 
   } catch (error: any) {
     // Handle specific error types
     if (error.code === 14 || error.message?.includes('No connection established')) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Database connection failed. Please try again." },
         { status: 503 }
-      );
+      ));
     }
     
     if (error.name === 'AbortError' || error.message?.includes('timeout')) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Request timed out. Please try again." },
         { status: 408 }
-      );
+      ));
     }
     
     if (error.message?.includes("adminAuthentication")) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Authentication required", message: error.message },
         { status: 401 }
-      );
+      ));
     }
 
-    return NextResponse.json(
+    return applyDevCors(NextResponse.json(
       { 
         success: false, 
         error: "Failed to fetch users",
@@ -221,7 +233,7 @@ export async function GET(request: NextRequest) {
         details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       },
       { status: 500 }
-    );
+    ));
   }
 }
 
@@ -232,7 +244,7 @@ export async function POST(request: NextRequest) {
     const authStart = Date.now();
     const admin = await verifyAdminAuth();
     if (!admin) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return applyDevCors(NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }));
     }
 
     const body = await request.json();
@@ -243,34 +255,34 @@ export async function POST(request: NextRequest) {
     const trimmedName = name?.trim();
 
     if (!trimmedEmail || !trimmedName || !password) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Email, name, and password are required", message: "Email, name, and password are required" },
         { status: 400 }
-      );
+      ));
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Please enter a valid email address", message: "Please enter a valid email address" },
         { status: 400 }
-      );
+      ));
     }
 
     // Validate password length
     if (password.length < 6) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Password must be at least 6 characters long", message: "Password must be at least 6 characters long" },
         { status: 400 }
-      );
+      ));
     }
 
     if (!['user', 'agent', 'admin'].includes(role)) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Invalid role. Must be user, agent, or admin", message: `Invalid role: ${role}. Must be user, agent, or admin` },
         { status: 400 }
-      );
+      ));
     }
 
     // OPTIMIZED: Removed redundant email check - Firebase Auth will throw error if exists
@@ -321,7 +333,7 @@ export async function POST(request: NextRequest) {
     serverCache.deleteByPrefix(makeKey('users', ['list']));
     serverCache.deleteByPrefix(makeKey('users', ['count']));
 
-    return NextResponse.json({
+    return applyDevCors(NextResponse.json({
       success: true,
       message: "User created successfully",
       data: {
@@ -334,27 +346,27 @@ export async function POST(request: NextRequest) {
           createdAt: userData.createdAt
         }
       }
-    });
+    }));
 
   } catch (error: any) {
     if (error.message?.includes("adminAuthentication")) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Authentication required", message: error.message },
         { status: 401 }
-      );
+      ));
     }
 
     if (error.code === 'auth/email-already-exists' || error.code === 'adminAuth/email-already-exists') {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "User with this email already exists", message: "User with this email already exists" },
         { status: 409 }
-      );
+      ));
     }
 
-    return NextResponse.json(
+    return applyDevCors(NextResponse.json(
       { success: false, error: "Failed to create user", message: error?.message || "Failed to create user" },
       { status: 500 }
-    );
+    ));
   }
 }
 
@@ -365,16 +377,16 @@ export async function PUT(request: NextRequest) {
     const authStart = Date.now();
     const admin = await verifyAdminAuth();
     if (!admin) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return applyDevCors(NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }));
     }
 
     const { userId, name, email, role, isActive, phone } = await request.json();
 
     if (!userId) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "User ID is required" },
         { status: 400 }
-      );
+      ));
     }
 
     // OPTIMIZED: Find user in all collections PARALLEL
@@ -466,23 +478,23 @@ export async function PUT(request: NextRequest) {
       serverCache.deleteByPrefix(makeKey('users', ['count']));
     }
 
-    return NextResponse.json({
+    return applyDevCors(NextResponse.json({
       success: true,
       message: "User updated successfully"
-    });
+    }));
 
   } catch (error: any) {
     if (error.message?.includes("adminAuthentication")) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Authentication required" },
         { status: 401 }
-      );
+      ));
     }
 
-    return NextResponse.json(
+    return applyDevCors(NextResponse.json(
       { success: false, error: "Failed to update user", message: error?.message || "Failed to update user" },
       { status: 500 }
-    );
+    ));
   }
 }
 
@@ -493,17 +505,17 @@ export async function DELETE(request: NextRequest) {
     const authStart = Date.now();
     const admin = await verifyAdminAuth();
     if (!admin) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return applyDevCors(NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }));
     }
 
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
     if (!userId) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "User ID is required" },
         { status: 400 }
-      );
+      ));
     }
 
     // OPTIMIZED: Find user in all collections PARALLEL
@@ -525,10 +537,10 @@ export async function DELETE(request: NextRequest) {
     }
     
     if (!userDoc) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "User not found" },
         { status: 404 }
-      );
+      ));
     }
 
     // CASCADE DELETE: Find and delete all files belonging to this user
@@ -656,24 +668,24 @@ export async function DELETE(request: NextRequest) {
     serverCache.deleteByPrefix(makeKey('files')); // Also invalidate files cache
     serverCache.deleteByPrefix(makeKey('users-agents')); // Invalidate user-agent cache
 
-    return NextResponse.json({
+    return applyDevCors(NextResponse.json({
       success: true,
       message: `User completely deleted. ${fileIdsToDelete.length} file(s) removed from database and ALL B2 storage folders (uploads/, agent-uploads/, agent-responses/). Not visible anywhere.`,
       filesDeleted: fileIdsToDelete.length,
       note: 'Hard delete: All user data, files, and B2 storage completely removed. Not visible in user portal, agent portal, Firebase, or anywhere.'
-    });
+    }));
 
   } catch (error: any) {
     if (error.message?.includes("adminAuthentication")) {
-      return NextResponse.json(
+      return applyDevCors(NextResponse.json(
         { success: false, error: "Authentication required" },
         { status: 401 }
-      );
+      ));
     }
 
-    return NextResponse.json(
+    return applyDevCors(NextResponse.json(
       { success: false, error: "Failed to delete user", message: error?.message || "Failed to delete user" },
       { status: 500 }
-    );
+    ));
   }
 }

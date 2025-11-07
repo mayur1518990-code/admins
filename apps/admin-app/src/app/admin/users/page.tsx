@@ -27,8 +27,14 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 // Format date function (pure, no hook needed)
-const formatDate = (date: string | Date) => {
-  const d = new Date(date);
+const formatDate = (date: string | Date | null | undefined) => {
+  if (!date) return 'Unknown';
+  const normalized =
+    typeof date === 'string' || date instanceof Date ? date : undefined;
+  const d = new Date(normalized || 0);
+  if (Number.isNaN(d.getTime())) {
+    return 'Unknown';
+  }
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -220,85 +226,120 @@ export default function UsersPage() {
   }, [editingUser]);
 
   const isLoadingRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
   
   const loadUsers = useCallback(async (forceRefresh = false) => {
-    if (isLoadingRef.current) return;
-    isLoadingRef.current = true;
-    
-    // Cancel previous request if still running
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (isLoadingRef.current && !forceRefresh) {
+      return;
     }
-    
+
+    isLoadingRef.current = true;
+
     try {
-      setIsLoading(true);
+      if (isMountedRef.current) {
+        setIsLoading(true);
+        setError("");
+      }
+
       const ttlMs = 5 * 60 * 1000; // 5 minutes cache
       const cacheKey = getCacheKey(['admin-users']);
-      
+
       if (!forceRefresh) {
         const cached = getCached<{ users: User[] }>(cacheKey);
         if (isFresh(cached, ttlMs)) {
-          setUsers(cached!.data.users);
-          setError("");
-          setIsLoading(false);
+          if (isMountedRef.current) {
+            setUsers(cached!.data.users);
+            setIsLoading(false);
+            setError("");
+          }
           isLoadingRef.current = false;
           return;
         }
       }
 
-      abortControllerRef.current = new AbortController();
-      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 30000); // Increased to 30s
-      
-      const response = await fetch('/api/admin/users?limit=100', { 
-        signal: abortControllerRef.current.signal,
+      const res = await fetch('/api/admin/users?limit=100', {
+        credentials: 'include',
         headers: {
-          'Content-Type': 'application/json',
-        }
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
       });
-      clearTimeout(timeoutId);
-      
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error(`Expected JSON but got ${contentType}. Status: ${response.status}`);
+
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
       }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || result.error || 'Failed to load users');
+
+      const data = await res.json();
+      console.log('Admin users payload:', data);
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.error || 'Failed to load users');
       }
-      
-      setUsers(result.users || []);
-      setCached(cacheKey, { users: result.users || [] });
-      setError("");
+
+      const normalizedUsers: User[] = Array.isArray(data.users)
+        ? data.users.map((user: any) => {
+            const createdAt = user?.createdAt?.seconds
+              ? new Date(user.createdAt.seconds * 1000).toISOString()
+              : user?.createdAt?.toDate?.()?.toISOString?.() || user?.createdAt || '';
+            const lastLoginAt = user?.lastLoginAt?.seconds
+              ? new Date(user.lastLoginAt.seconds * 1000).toISOString()
+              : user?.lastLoginAt?.toDate?.()?.toISOString?.() || user?.lastLoginAt || undefined;
+
+            return {
+              id: String(user?.id ?? user?.uid ?? ''),
+              email: String(user?.email ?? ''),
+              name:
+                String(user?.name ?? user?.displayName ?? '').trim() ||
+                'Unnamed User',
+              role: String(user?.role ?? 'user').toLowerCase(),
+              isActive: Boolean(user?.isActive ?? true),
+              createdAt: createdAt ? String(createdAt) : new Date().toISOString(),
+              lastLoginAt: lastLoginAt ? String(lastLoginAt) : undefined,
+              phone: user?.phone != null ? String(user.phone) : undefined,
+            } satisfies User;
+          })
+        : [];
+
+      if (isMountedRef.current) {
+        setUsers(normalizedUsers);
+        setCached(cacheKey, { users: normalizedUsers });
+        setError("");
+      }
     } catch (error: any) {
-      // Don't set error for aborted requests
-      if (error.name === 'AbortError') return;
-      console.error('Error loading users:', error);
-      
-      // Handle specific error types
-      if (error.message?.includes('Database connection failed')) {
-        setError('Database connection failed. Please try again.');
-      } else if (error.message?.includes('Request timed out')) {
-        setError('Request timed out. Please try again.');
-      } else {
-        setError(error.message || 'Failed to load users');
+      if (error?.name === 'AbortError') {
+        console.debug('Fetch aborted before completion');
+        return;
       }
+
+      console.error('Fetch failed:', error);
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      if (error?.message?.includes('Database connection failed')) {
+        setError('Database connection failed. Please try again.');
+      } else if (error?.message?.includes('Request timed out')) {
+        setError('Request timed out. Please try again.');
+      } else if (error?.message?.includes('Server error')) {
+        setError('Unable to load users. Please try again in a moment.');
+      } else {
+        setError(error?.message || 'Failed to load users');
+      }
+
+      setUsers([]);
     } finally {
-      setIsLoading(false);
       isLoadingRef.current = false;
-      abortControllerRef.current = null;
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
-  
-  // Cleanup abort controller on unmount
+
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      isMountedRef.current = false;
     };
   }, []);
 
@@ -475,16 +516,26 @@ export default function UsersPage() {
   };
 
   const filteredUsers = useMemo(() => {
-    const search = debouncedSearchTerm.toLowerCase(); // Use debounced value
-    return users.filter(user => {
-      const matchesFilter = filter === "all" || 
-        (filter === "active" && user.isActive) || 
+    const search = debouncedSearchTerm.trim().toLowerCase();
+
+    return users.filter((user) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "active" && user.isActive) ||
         (filter === "inactive" && !user.isActive);
+
       const matchesRole = roleFilter === "all" || user.role === roleFilter;
-      const matchesSearch = !search || 
-        user.name.toLowerCase().includes(search) ||
-        user.email.toLowerCase().includes(search) ||
-        user.phone?.toLowerCase().includes(search);
+
+      const lowerName = (user.name ?? '').toLowerCase();
+      const lowerEmail = (user.email ?? '').toLowerCase();
+      const lowerPhone = (user.phone ?? '').toLowerCase();
+
+      const matchesSearch =
+        !search ||
+        lowerName.includes(search) ||
+        lowerEmail.includes(search) ||
+        lowerPhone.includes(search);
+
       return matchesFilter && matchesRole && matchesSearch;
     });
   }, [users, filter, roleFilter, debouncedSearchTerm]);

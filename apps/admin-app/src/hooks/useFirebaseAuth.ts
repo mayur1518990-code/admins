@@ -21,10 +21,6 @@ export function useFirebaseAuth() {
 
     // Check if admin is logged in via cookie
     const customToken = getCookie('admin-token');
-    console.log('[Firebase Auth] Cookie check:', {
-      hasToken: !!customToken,
-      tokenPreview: customToken ? customToken.substring(0, 20) + '...' : 'none'
-    });
     
     if (!customToken || customToken === 'undefined') {
       console.log('[Firebase Auth] No admin token found, skipping client auth');

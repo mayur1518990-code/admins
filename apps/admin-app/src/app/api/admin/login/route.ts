@@ -70,12 +70,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate custom token for admin
+    console.log('[Admin Login] Generating custom token for:', {
+      adminId,
+      email: adminData.email,
+      projectId: process.env.FIREBASE_PROJECT_ID
+    });
+    
     const customToken = await adminAuth.createCustomToken(adminId, {
       role: 'admin',
       adminId: adminId,
       name: adminData.name,
       email: adminData.email
     });
+    
+    console.log('[Admin Login] Custom token generated successfully');
 
     // Update last login time
     await adminDb.collection('admins').doc(adminId).update({

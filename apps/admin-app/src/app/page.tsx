@@ -36,8 +36,9 @@ function UnifiedLoginForm() {
         const result = await response.json();
 
         if (result.success) {
-          // Set admin token cookie
+          // Set admin custom token cookie (temporary, will be replaced with ID token after Firebase sign-in)
           document.cookie = `admin-token=${result.data.customToken}; path=/; max-age=86400`;
+          document.cookie = `admin-custom-token=${result.data.customToken}; path=/; max-age=3600`; // Custom token expires in 1 hour
           // Store admin info in localStorage
           localStorage.setItem('adminId', result.data.adminId);
           localStorage.setItem('adminName', result.data.name);

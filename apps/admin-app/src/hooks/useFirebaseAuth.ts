@@ -19,21 +19,30 @@ export function useFirebaseAuth() {
       return;
     }
 
-    // Check if admin is logged in via cookie
-    const customToken = getCookie('admin-token');
-    
-    if (!customToken || customToken === 'undefined') {
-      console.log('[Firebase Auth] No admin token found, skipping client auth');
-      setLoading(false);
-      return;
-    }
-
     // Sign in with custom token for client-side Firebase Auth
     const signIn = async () => {
       try {
+        const customToken = getCookie('admin-custom-token');
+        if (!customToken) {
+          console.log('[Firebase Auth] No custom token found');
+          setLoading(false);
+          return;
+        }
+        
         console.log('[Firebase Auth] Signing in with custom token...');
         const userCredential = await signInWithCustomToken(auth!, customToken);
         console.log('[Firebase Auth] Successfully authenticated:', userCredential.user.uid);
+        
+        // CRITICAL FIX: Get ID token after successful sign-in and update cookie
+        const idToken = await userCredential.user.getIdToken();
+        console.log('[Firebase Auth] Got ID token, updating cookies...');
+        
+        // Set ID token in cookie for API authentication
+        document.cookie = `admin-token=${idToken}; path=/; max-age=3600`; // ID token expires in 1 hour
+        
+        // Clear custom token cookie (one-time use)
+        document.cookie = `admin-custom-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC`;
+        
         setUser(userCredential.user);
         setError(null);
       } catch (err: any) {
@@ -50,10 +59,12 @@ export function useFirebaseAuth() {
         console.log('[Firebase Auth] User authenticated:', currentUser.uid);
         setUser(currentUser);
         setLoading(false);
-      } else if (customToken) {
-        // If we have a token but no user, sign in
+      } else if (getCookie('admin-custom-token')) {
+        // If we have a custom token but no user, sign in
+        console.log('[Firebase Auth] No current user, attempting sign-in with custom token');
         signIn();
       } else {
+        console.log('[Firebase Auth] No user and no custom token');
         setLoading(false);
       }
     });

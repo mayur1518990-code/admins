@@ -62,6 +62,7 @@ export const Sidebar = memo(function Sidebar({ sidebarOpen: externalSidebarOpen,
       console.error('Logout API error:', error);
     } finally {
       document.cookie = 'admin-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      document.cookie = 'admin-custom-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       document.cookie = 'agent-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       window.location.href = '/';
     }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function AgentLogin() {
   const [email, setEmail] = useState("");
@@ -9,6 +10,17 @@ export default function AgentLogin() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const { agentToken, loading } = useAuth();
+  
+  // Redirect if already authenticated (uses centralized auth - no extra requests!)
+  useEffect(() => {
+    if (loading) return; // Wait for auth to load
+    
+    if (agentToken && agentToken !== 'undefined') {
+      console.log('[Agent Login] Already authenticated, redirecting...');
+      router.push('/agent');
+    }
+  }, [agentToken, loading, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

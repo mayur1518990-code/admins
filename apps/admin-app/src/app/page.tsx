@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Unified Login Form Component
 function UnifiedLoginForm() {
@@ -11,6 +12,20 @@ function UnifiedLoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const { adminToken, agentToken, loading } = useAuth();
+  
+  // Redirect if already authenticated (uses centralized auth - no extra requests!)
+  useEffect(() => {
+    if (loading) return; // Wait for auth to load
+    
+    if (adminToken && adminToken !== 'undefined') {
+      console.log('[Login] Already authenticated as admin, redirecting...');
+      router.push('/dashboard');
+    } else if (agentToken && agentToken !== 'undefined') {
+      console.log('[Login] Already authenticated as agent, redirecting...');
+      router.push('/agent');
+    }
+  }, [adminToken, agentToken, loading, router]);
 
   // OPTIMIZED: Add request timeout and improved error handling
   const handleLogin = async (e: React.FormEvent) => {

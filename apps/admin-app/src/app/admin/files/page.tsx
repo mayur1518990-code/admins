@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from "@/lib/cache";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where, orderBy, limit as firestoreLimit, Timestamp } from "firebase/firestore";
-import { useFirebaseAuth } from "@/hooks/useFirebaseAuth";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Debounce hook for search optimization
 function useDebounce<T>(value: T, delay: number): T {
@@ -85,7 +85,7 @@ interface Agent {
 }
 
 export default function FilesPage() {
-  const { isAuthenticated, loading: authLoading, error: authError } = useFirebaseAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -119,12 +119,12 @@ export default function FilesPage() {
 
   // REAL-TIME FIRESTORE LISTENER
   // This replaces the need for manual refresh and enables instant updates
+  // Auth is checked ONCE in AuthProvider - no redundant requests!
   useEffect(() => {
     console.log('[Files Page] Listener setup check:', { 
       authLoading, 
       isAuthenticated, 
-      hasDb: !!db,
-      authError 
+      hasDb: !!db
     });
     
     // Wait for Firebase authentication before setting up listener
@@ -140,7 +140,7 @@ export default function FilesPage() {
       return;
     }
     
-    console.log('[Files Page] Setting up Firestore listener...');
+    console.log('[Files Page] Setting up Firestore listener (using centralized auth)...');
     
     // Build the Firestore query based on current filters
     let firestoreQuery = collection(db, 'files');

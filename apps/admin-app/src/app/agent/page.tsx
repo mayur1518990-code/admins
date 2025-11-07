@@ -3,8 +3,7 @@
 // Force dynamic rendering for authenticated pages
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from '@/lib/cache';
 
 interface AssignedFile {
@@ -37,7 +36,6 @@ interface AgentStats {
 }
 
 export default function AgentDashboard() {
-  const router = useRouter();
   const [files, setFiles] = useState<AssignedFile[]>([]);
   const [stats, setStats] = useState<AgentStats>({
     totalAssigned: 0,
@@ -87,7 +85,7 @@ export default function AgentDashboard() {
         // Cache the result
         setCached(cacheKey, { files: data.files });
       }
-    } catch (error) {
+    } catch {
       // Silent error - show empty state
     } finally {
       setLoading(false);
@@ -120,7 +118,7 @@ export default function AgentDashboard() {
           'Content-Type': 'application/json',
         },
       });
-    } catch (error) {
+    } catch {
       // Silent error - logout anyway
     } finally {
       // Clear the agent token cookie
@@ -186,7 +184,7 @@ export default function AgentDashboard() {
         await fetchAssignedFiles(true);
         alert('Failed to update file status. Please try again.');
       }
-    } catch (error) {
+    } catch {
       // Revert optimistic update on error
       await fetchAssignedFiles(true);
       alert('Error updating file status. Please try again.');
@@ -195,7 +193,7 @@ export default function AgentDashboard() {
     }
   };
 
-  const downloadOriginalFile = async (fileId: string, filename: string) => {
+  const downloadOriginalFile = async (fileId: string) => {
     try {
       // OPTIMIZED: Get pre-signed URL (instant response <100ms)
       const response = await fetch(`/api/agent/files/${fileId}/download-url`);
@@ -259,7 +257,8 @@ export default function AgentDashboard() {
       }
     } catch (error) {
       console.error('[UPLOAD] Error:', error);
-      alert(`Error uploading file: ${error instanceof Error ? error.message : 'Please try again.'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Please try again.';
+      alert(`Error uploading file: ${errorMessage}`);
     } finally {
       setUploading(false);
     }
@@ -640,7 +639,7 @@ export default function AgentDashboard() {
                       {(file.status === 'assigned' || file.status === 'paid') && (
                         <>
                           <button
-                            onClick={() => downloadOriginalFile(file.id, file.originalName)}
+                            onClick={() => downloadOriginalFile(file.id)}
                             disabled={updatingStatus === file.id}
                             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -749,7 +748,7 @@ export default function AgentDashboard() {
                           {(file.status === 'assigned' || file.status === 'paid') && (
                             <>
                               <button
-                                onClick={() => downloadOriginalFile(file.id, file.originalName)}
+                                onClick={() => downloadOriginalFile(file.id)}
                                 disabled={updatingStatus === file.id}
                                 className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
                               >

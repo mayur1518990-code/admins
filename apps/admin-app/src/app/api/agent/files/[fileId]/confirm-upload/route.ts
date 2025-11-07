@@ -53,8 +53,16 @@ export async function POST(
 
     const fileData = fileDoc.data();
     
+    // Verify fileData exists
+    if (!fileData) {
+      return NextResponse.json({
+        success: false,
+        error: 'File data not found'
+      }, { status: 404 });
+    }
+    
     // Verify the file is assigned to this agent
-    if (fileData?.assignedAgentId !== agent.agentId) {
+    if (fileData.assignedAgentId !== agent.agentId) {
       return NextResponse.json({
         success: false,
         error: 'File not assigned to you'

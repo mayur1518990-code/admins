@@ -120,16 +120,27 @@ export default function FilesPage() {
   // REAL-TIME FIRESTORE LISTENER
   // This replaces the need for manual refresh and enables instant updates
   useEffect(() => {
+    console.log('[Files Page] Listener setup check:', { 
+      authLoading, 
+      isAuthenticated, 
+      hasDb: !!db,
+      authError 
+    });
+    
     // Wait for Firebase authentication before setting up listener
     if (authLoading) {
+      console.log('[Files Page] Auth still loading, waiting...');
       return;
     }
     
     if (!isAuthenticated || !db) {
       // Fallback to regular API loading if not authenticated or Firebase not initialized
+      console.log('[Files Page] Falling back to API loading (no auth or db)');
       loadFiles(true);
       return;
     }
+    
+    console.log('[Files Page] Setting up Firestore listener...');
     
     // Build the Firestore query based on current filters
     let firestoreQuery = collection(db, 'files');
@@ -155,6 +166,7 @@ export default function FilesPage() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        console.log('[Files Page] Firestore listener triggered! Files:', snapshot.docs.length);
         
         // Extract file IDs from the snapshot
         const fileIds = snapshot.docs.map(doc => doc.id);
@@ -187,7 +199,15 @@ export default function FilesPage() {
                   !assignedFileIdsRef.current.has(file.id) // Only files we haven't processed yet
                 );
                 
+                console.log('[Files Page] Smart-assign check:', {
+                  totalFiles: result.files.length,
+                  paidFiles: result.files.filter((f: File) => f.status === 'paid').length,
+                  unassignedPaidFiles: newUnassignedFiles.length,
+                  isAutoAssigning
+                });
+                
                 if (newUnassignedFiles.length > 0 && !isAutoAssigning) {
+                  console.log('[Files Page] Starting smart-assign for files:', newUnassignedFiles.map((f: any) => f.id));
                   // Mark these files as being processed
                   newUnassignedFiles.forEach((f: any) => assignedFileIdsRef.current.add(f.id));
                   

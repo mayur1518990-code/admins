@@ -335,7 +335,7 @@ export default function AgentDashboard() {
   
   const filteredFiles = files.filter(file => {
     if (statusFilter === 'all') return file.status !== 'replacement'; // Exclude replacement from "all"
-    if (statusFilter === 'assigned') return (file.status === 'assigned' || file.status === 'paid') && file.status !== 'replacement';
+    if (statusFilter === 'assigned') return file.status === 'assigned' || file.status === 'paid';
     if (statusFilter === 'replacement') return file.status === 'replacement';
     return file.status === statusFilter && file.status !== 'replacement';
   });

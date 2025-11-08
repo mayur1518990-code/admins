@@ -3,7 +3,7 @@
 // Force dynamic rendering for authenticated pages
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from '@/lib/cache';
 
 interface AssignedFile {
@@ -12,7 +12,7 @@ interface AssignedFile {
   filename: string;
   size: number;
   mimeType: string;
-  status: 'assigned' | 'processing' | 'completed' | 'paid';
+  status: 'assigned' | 'processing' | 'completed' | 'paid' | 'replacement';
   uploadedAt: string;
   assignedAt: string;
   userId: string;
@@ -49,9 +49,66 @@ export default function AgentDashboard() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'assigned' | 'processing' | 'completed' | 'paid'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'assigned' | 'processing' | 'completed' | 'paid' | 'replacement'>('all');
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [updatedFileIds, setUpdatedFileIds] = useState<Set<string>>(() => new Set());
+  const previousFileSignaturesRef = useRef<Map<string, string>>(new Map());
+
+  const trackFileUpdates = useCallback((incomingFiles: AssignedFile[]) => {
+    const currentIds = new Set(incomingFiles.map(file => file.id));
+    setUpdatedFileIds(prev => {
+      if (!incomingFiles.length && prev.size === 0) {
+        previousFileSignaturesRef.current.clear();
+        return prev;
+      }
+
+      const next = new Set(prev);
+      let mutated = false;
+
+      incomingFiles.forEach(file => {
+        const signature = `${file.originalName || ''}|${file.filename || ''}|${file.uploadedAt || ''}`;
+        const prevSignature = previousFileSignaturesRef.current.get(file.id);
+
+        if (prevSignature && prevSignature !== signature && !next.has(file.id)) {
+          next.add(file.id);
+          mutated = true;
+        }
+
+        previousFileSignaturesRef.current.set(file.id, signature);
+      });
+
+      next.forEach(id => {
+        if (!currentIds.has(id)) {
+          next.delete(id);
+          mutated = true;
+        }
+      });
+
+      Array.from(previousFileSignaturesRef.current.keys()).forEach(id => {
+        if (!currentIds.has(id)) {
+          previousFileSignaturesRef.current.delete(id);
+        }
+      });
+
+      return mutated ? next : prev;
+    });
+  }, []);
+
+  const clearFileUpdateFlags = useCallback((fileIds: string[]) => {
+    if (!fileIds || fileIds.length === 0) return;
+    setUpdatedFileIds(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      let mutated = false;
+      fileIds.forEach(id => {
+        if (next.delete(id)) {
+          mutated = true;
+        }
+      });
+      return mutated ? next : prev;
+    });
+  }, []);
 
   // OPTIMIZED: Add client-side caching with useCallback, removed console logs
   const fetchAssignedFiles = useCallback(async (forceRefresh = false) => {
@@ -63,8 +120,10 @@ export default function AgentDashboard() {
       if (!forceRefresh) {
         const cached = getCached<{ files: AssignedFile[] }>(cacheKey);
         if (isFresh(cached, 180_000)) { // 3 minutes cache
-          setFiles(cached!.data.files);
-          calculateStats(cached!.data.files);
+          const cachedFiles = cached!.data.files || [];
+          trackFileUpdates(cachedFiles);
+          setFiles(cachedFiles);
+          calculateStats(cachedFiles);
           setLoading(false);
           return;
         }
@@ -79,8 +138,10 @@ export default function AgentDashboard() {
       const data = await response.json();
 
       if (data.success) {
-        setFiles(data.files);
-        calculateStats(data.files);
+        const latestFiles = data.files || [];
+        trackFileUpdates(latestFiles);
+        setFiles(latestFiles);
+        calculateStats(latestFiles);
         
         // Cache the result
         setCached(cacheKey, { files: data.files });
@@ -90,7 +151,7 @@ export default function AgentDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty deps - stable callback
+  }, [trackFileUpdates]); // Stable callback with change tracking
 
   // Load files on mount
   useEffect(() => {
@@ -151,6 +212,9 @@ export default function AgentDashboard() {
         calculateStats(updatedFiles);
         return updatedFiles;
       });
+      if (status === 'processing') {
+        clearFileUpdateFlags([fileId]);
+      }
       
       // Switch to 'All Files' view so user can see the status change
       if (status === 'processing') {
@@ -265,10 +329,15 @@ export default function AgentDashboard() {
   };
 
 
+  // Separate replacement files from normal files
+  const normalFiles = files.filter(file => file.status !== 'replacement');
+  const replacementFiles = files.filter(file => file.status === 'replacement');
+  
   const filteredFiles = files.filter(file => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'assigned') return file.status === 'assigned' || file.status === 'paid';
-    return file.status === statusFilter;
+    if (statusFilter === 'all') return file.status !== 'replacement'; // Exclude replacement from "all"
+    if (statusFilter === 'assigned') return (file.status === 'assigned' || file.status === 'paid') && file.status !== 'replacement';
+    if (statusFilter === 'replacement') return file.status === 'replacement';
+    return file.status === statusFilter && file.status !== 'replacement';
   });
 
   // Checkbox handlers
@@ -346,6 +415,7 @@ export default function AgentDashboard() {
     'processing': 'bg-blue-100 text-blue-800',
     'completed': 'bg-green-100 text-green-800',
     'paid': 'bg-yellow-100 text-yellow-800',
+    'replacement': 'bg-orange-100 text-orange-800',
   };
   
   const getStatusColor = (status: string) => STATUS_COLORS[status] || 'bg-gray-100 text-gray-800';
@@ -382,6 +452,21 @@ export default function AgentDashboard() {
             </div>
           </div>
         </div>
+
+      {updatedFileIds.size > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+            <p className="font-medium">
+              {updatedFileIds.size === 1
+                ? '1 assigned file was updated by the client. Please review the latest version.'
+                : `${updatedFileIds.size} assigned files were updated by the client. Please review the latest versions.`}
+            </p>
+            <p className="text-sm mt-1">
+              Download the refreshed file before restarting processing so your response matches the new upload.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
@@ -487,9 +572,94 @@ export default function AgentDashboard() {
               >
                 Completed ({stats.completed})
               </button>
+              <button
+                onClick={() => setStatusFilter('replacement')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  statusFilter === 'replacement' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Replacement ({replacementFiles.length})
+              </button>
             </div>
           </div>
         </div>
+
+        {/* Replacement Files Section - Always visible if there are replacement files */}
+        {replacementFiles.length > 0 && statusFilter !== 'replacement' && (
+          <div className="bg-orange-50 border-2 border-orange-200 rounded-lg shadow mb-6">
+            <div className="px-6 py-4 border-b border-orange-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-orange-900">
+                    Replacement Files ({replacementFiles.length})
+                  </h2>
+                  <p className="text-sm text-orange-700 mt-1">
+                    Files that need corrections and re-processing
+                  </p>
+                </div>
+                <button
+                  onClick={() => setStatusFilter('replacement')}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                >
+                  View All
+                </button>
+              </div>
+            </div>
+            <div className="divide-y divide-orange-200">
+              {replacementFiles.slice(0, 3).map((file) => {
+                const fileHasUpdate = updatedFileIds.has(file.id);
+                const status = file.status;
+                const showDownloadButton = true; // Always show download for replacement
+                const showStartProcessing = true; // Always show start processing for replacement
+                return (
+                  <div
+                    key={`replacement-${file.id}`}
+                    className="p-6 hover:bg-orange-100"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-medium text-gray-900">{file.originalName}</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Size: {formatFileSize(file.size)} • 
+                          Assigned: {new Date(file.assignedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2 ml-4">
+                        {showDownloadButton && (
+                          <button
+                            onClick={() => downloadOriginalFile(file.id)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            Download
+                          </button>
+                        )}
+                        {showStartProcessing && (
+                          <button
+                            onClick={() => updateFileStatus(file.id, 'processing')}
+                            disabled={updatingStatus === file.id}
+                            className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm disabled:opacity-50"
+                          >
+                            Start Processing
+                          </button>
+                        )}
+                        {file.status === 'processing' && (
+                          <button
+                            onClick={() => setSelectedFile(file)}
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+                          >
+                            Upload Completed
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Files List */}
         <div className="bg-white rounded-lg shadow">
@@ -574,154 +744,54 @@ export default function AgentDashboard() {
             <>
               {/* Desktop: Horizontal Layout */}
               <div className="hidden md:block divide-y divide-gray-200">
-                {filteredFiles.map((file) => (
-                  <div key={file.id} className="p-6 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex-shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={selectedFiles.includes(file.id)}
-                              onChange={() => toggleFileSelection(file.id)}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                          </div>
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
+                {filteredFiles.map((file) => {
+                  const fileHasUpdate = updatedFileIds.has(file.id);
+                  const status = file.status;
+                  const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
+                  const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
+                  return (
+                    <div
+                      key={file.id}
+                      className={`p-6 hover:bg-gray-50 ${fileHasUpdate ? 'bg-amber-50/70 border-l-4 border-amber-300' : ''}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-4">
+                            <div className="flex-shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={selectedFiles.includes(file.id)}
+                                onChange={() => toggleFileSelection(file.id)}
+                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                              />
                             </div>
-                          </div>
-                          
-                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleFileSelection(file.id)}>
-                            <h3 className="text-lg font-medium text-gray-900 truncate">
-                              {file.originalName}
-                            </h3>
-                            <div className="flex items-center space-x-4 mt-1">
-                              <p className="text-sm text-gray-500">
-                                Size: {formatFileSize(file.size)}
-                              </p>
-                              <p className="text-sm text-gray-500">
-                                Assigned: {new Date(file.assignedAt).toLocaleDateString()}
-                              </p>
-                              {file.userEmail && (
-                                <p className="text-sm text-gray-500">
-                                  User: {file.userEmail}
-                                </p>
-                              )}
-                            </div>
-                            {file.userComment && (
-                              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
-                                <div className="flex items-start space-x-2">
-                                  <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                                  </svg>
-                                  <div className="flex-1">
-                                    <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
-                                    <p className="text-sm text-blue-900">{file.userComment}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center space-x-3">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
-                              {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2 ml-4">
-                      {(file.status === 'assigned' || file.status === 'paid') && (
-                        <>
-                          <button
-                            onClick={() => downloadOriginalFile(file.id)}
-                            disabled={updatingStatus === file.id}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Download
-                          </button>
-                          <button
-                            onClick={() => updateFileStatus(file.id, 'processing')}
-                            disabled={updatingStatus === file.id}
-                            className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                          >
-                            {updatingStatus === file.id ? (
-                              <>
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Processing...</span>
-                              </>
-                            ) : (
-                              <span>Start Processing</span>
-                            )}
-                          </button>
-                        </>
-                      )}
-                      
-                      {file.status === 'processing' && (
-                        <button
-                          onClick={() => setSelectedFile(file)}
-                          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
-                        >
-                          Upload Completed
-                        </button>
-                      )}
-                      
-                      {file.status === 'completed' && file.completedFile && (
-                        <div className="text-sm text-gray-500">
-                          Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-              {/* Mobile: Vertical Card Layout */}
-              <div className="md:hidden space-y-4 px-4 pb-4">
-                {filteredFiles.map((file) => (
-                  <div key={`mobile-${file.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <div className="flex items-start space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedFiles.includes(file.id)}
-                        onChange={() => toggleFileSelection(file.id)}
-                        className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="flex-shrink-0">
+                              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                               </div>
-                              <h3 className="text-base font-medium text-gray-900 truncate">
-                                {file.originalName}
-                              </h3>
                             </div>
-                            
-                            <div className="space-y-1 ml-10">
-                              <p className="text-sm text-gray-600">
-                                <span className="font-medium">Size:</span> {formatFileSize(file.size)}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                <span className="font-medium">Assigned:</span> {new Date(file.assignedAt).toLocaleDateString()}
-                              </p>
-                              {file.userEmail && (
-                                <p className="text-sm text-gray-600">
-                                  <span className="font-medium">User:</span> {file.userEmail}
-                                </p>
+
+                            <div
+                              className="flex-1 min-w-0 cursor-pointer"
+                              onClick={() => toggleFileSelection(file.id)}
+                            >
+                              <h3 className="text-lg font-medium text-gray-900 truncate">{file.originalName}</h3>
+                              {fileHasUpdate && (
+                                <span className="mt-1 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                                  File updated by client
+                                </span>
                               )}
+                              <div className="flex items-center space-x-4 mt-1">
+                                <p className="text-sm text-gray-500">Size: {formatFileSize(file.size)}</p>
+                                <p className="text-sm text-gray-500">
+                                  Assigned: {new Date(file.assignedAt).toLocaleDateString()}
+                                </p>
+                                {file.userEmail && (
+                                  <p className="text-sm text-gray-500">User: {file.userEmail}</p>
+                                )}
+                              </div>
                               {file.userComment && (
                                 <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
                                   <div className="flex items-start space-x-2">
@@ -735,18 +805,148 @@ export default function AgentDashboard() {
                                   </div>
                                 </div>
                               )}
-                              <div className="mt-2">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
-                                  {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
-                                </span>
-                              </div>
+                              {fileHasUpdate && (
+                                <p className="mt-2 text-sm text-amber-700 font-medium">
+                                  Latest upload detected. Download the new file before responding.
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center space-x-3">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
+                                {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                              </span>
                             </div>
                           </div>
                         </div>
-                        
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {(file.status === 'assigned' || file.status === 'paid') && (
-                            <>
+
+                        <div className="flex items-center space-x-2 ml-4">
+                          {showDownloadButton && (
+                            <button
+                              onClick={() => downloadOriginalFile(file.id)}
+                              disabled={updatingStatus === file.id}
+                              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Download
+                            </button>
+                          )}
+                          {showStartProcessing && (
+                            <button
+                              onClick={() => updateFileStatus(file.id, 'processing')}
+                              disabled={updatingStatus === file.id}
+                              className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                            >
+                              {updatingStatus === file.id ? (
+                                <>
+                                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  <span>Processing...</span>
+                                </>
+                              ) : (
+                                <span>{fileHasUpdate && status === 'completed' ? 'Restart Processing' : 'Start Processing'}</span>
+                              )}
+                            </button>
+                          )}
+
+                          {file.status === 'processing' && (
+                            <button
+                              onClick={() => setSelectedFile(file)}
+                              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+                            >
+                              Upload Completed
+                            </button>
+                          )}
+
+                          {file.status === 'completed' && file.completedFile && (
+                            <div className="text-sm text-gray-500">
+                              Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Mobile: Vertical Card Layout */}
+              <div className="md:hidden space-y-4 px-4 pb-4">
+                {filteredFiles.map((file) => {
+                  const fileHasUpdate = updatedFileIds.has(file.id);
+                  const status = file.status;
+                  const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
+                  const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
+                  return (
+                    <div
+                      key={`mobile-${file.id}`}
+                      className={`rounded-lg p-4 border ${fileHasUpdate ? 'border-amber-300 bg-amber-50/70' : 'bg-gray-50 border-gray-200'}`}
+                    >
+                      <div className="flex items-start space-x-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedFiles.includes(file.id)}
+                          onChange={() => toggleFileSelection(file.id)}
+                          className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                </div>
+                                <h3 className="text-base font-medium text-gray-900 truncate">{file.originalName}</h3>
+                              </div>
+                              {fileHasUpdate && (
+                                <span className="ml-10 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                                  File updated by client
+                                </span>
+                              )}
+                              <div className="space-y-1 ml-10">
+                                <p className="text-sm text-gray-600">
+                                  <span className="font-medium">Size:</span> {formatFileSize(file.size)}
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  <span className="font-medium">Assigned:</span> {new Date(file.assignedAt).toLocaleDateString()}
+                                </p>
+                                {file.userEmail && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">User:</span> {file.userEmail}
+                                  </p>
+                                )}
+                                {file.userComment && (
+                                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                    <div className="flex items-start space-x-2">
+                                      <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                      </svg>
+                                      <div className="flex-1">
+                                        <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
+                                        <p className="text-sm text-blue-900">{file.userComment}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {fileHasUpdate && (
+                                  <p className="text-xs text-amber-700 font-medium">
+                                    Latest upload detected. Download the new file before responding.
+                                  </p>
+                                )}
+                                <div className="mt-2">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
+                                    {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {showDownloadButton && (
                               <button
                                 onClick={() => downloadOriginalFile(file.id)}
                                 disabled={updatingStatus === file.id}
@@ -754,35 +954,41 @@ export default function AgentDashboard() {
                               >
                                 Download
                               </button>
+                            )}
+                            {showStartProcessing && (
                               <button
                                 onClick={() => updateFileStatus(file.id, 'processing')}
                                 disabled={updatingStatus === file.id}
                                 className="bg-yellow-600 text-white px-3 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
                               >
-                                {updatingStatus === file.id ? 'Processing...' : 'Start Processing'}
+                                {updatingStatus === file.id
+                                  ? 'Processing...'
+                                  : fileHasUpdate && status === 'completed'
+                                    ? 'Restart Processing'
+                                    : 'Start Processing'}
                               </button>
-                            </>
-                          )}
-                          
-                          {file.status === 'processing' && (
-                            <button
-                              onClick={() => setSelectedFile(file)}
-                              className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
-                            >
-                              Upload Completed
-                            </button>
-                          )}
-                          
-                          {file.status === 'completed' && file.completedFile && (
-                            <div className="text-xs text-gray-500 w-full mt-2">
-                              Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
-                            </div>
-                          )}
+                            )}
+
+                            {file.status === 'processing' && (
+                              <button
+                                onClick={() => setSelectedFile(file)}
+                                className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
+                              >
+                                Upload Completed
+                              </button>
+                            )}
+
+                            {file.status === 'completed' && file.completedFile && (
+                              <div className="text-xs text-gray-500 w-full mt-2">
+                                Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}

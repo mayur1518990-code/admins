@@ -46,6 +46,7 @@ const STATUS_COLORS: Record<string, string> = {
   'paid': 'bg-blue-100 text-blue-800',
   'processing': 'bg-purple-100 text-purple-800',
   'completed': 'bg-green-100 text-green-800',
+  'replacement': 'bg-orange-100 text-orange-800',
   'unknown': 'bg-gray-100 text-gray-800'
 };
 
@@ -90,7 +91,7 @@ export default function FilesPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<"all" | "paid" | "processing" | "completed">("all");
+  const [filter, setFilter] = useState<"all" | "paid" | "processing" | "completed" | "replacement">("all");
   const [daysFilter, setDaysFilter] = useState<"all" | "7" | "15" | "30">("all");
   const [searchTerm, setSearchTerm] = useState("");
   const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search by 300ms
@@ -98,9 +99,65 @@ export default function FilesPage() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState("");
   const [isAutoAssigning, setIsAutoAssigning] = useState(false);
+  const [changedFileIds, setChangedFileIds] = useState<Set<string>>(() => new Set());
   const isInitialMount = useRef(true);
   const assignedFileIdsRef = useRef<Set<string>>(new Set()); // Track which specific files have been assigned
-  
+  const previousFileSignaturesRef = useRef<Map<string, string>>(new Map());
+  const trackFileChanges = useCallback((incomingFiles: File[]) => {
+    const currentIds = new Set(incomingFiles.map(file => file.id));
+    setChangedFileIds(prev => {
+      if (!incomingFiles.length && prev.size === 0) {
+        previousFileSignaturesRef.current.clear();
+        return prev;
+      }
+
+      const next = new Set(prev);
+      let mutated = false;
+
+      incomingFiles.forEach(file => {
+        const signature = `${file.originalName || ""}|${file.filename || ""}|${file.uploadedAt || ""}`;
+        const prevSignature = previousFileSignaturesRef.current.get(file.id);
+
+        if (prevSignature && prevSignature !== signature && !next.has(file.id)) {
+          next.add(file.id);
+          mutated = true;
+        }
+
+        previousFileSignaturesRef.current.set(file.id, signature);
+      });
+
+      next.forEach(id => {
+        if (!currentIds.has(id)) {
+          next.delete(id);
+          mutated = true;
+        }
+      });
+
+      Array.from(previousFileSignaturesRef.current.keys()).forEach(id => {
+        if (!currentIds.has(id)) {
+          previousFileSignaturesRef.current.delete(id);
+        }
+      });
+
+      return mutated ? next : prev;
+    });
+  }, []);
+
+  const clearChangeFlags = useCallback((fileIds: string[]) => {
+    if (!fileIds || fileIds.length === 0) return;
+    setChangedFileIds(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      let mutated = false;
+      fileIds.forEach(id => {
+        if (next.delete(id)) {
+          mutated = true;
+        }
+      });
+      return mutated ? next : prev;
+    });
+  }, []);
+
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -182,26 +239,28 @@ export default function FilesPage() {
             .then(res => res.json())
             .then(async result => {
               if (result.success) {
-                setFiles(result.files || []);
+                const nextFiles = result.files || [];
+                trackFileChanges(nextFiles);
+                setFiles(nextFiles);
                 setError("");
                 
                 // Clean up tracking set: remove files that now have assignments
-                result.files.forEach((file: File) => {
+                nextFiles.forEach((file: File) => {
                   if (file.assignedAgentId && assignedFileIdsRef.current.has(file.id)) {
                     assignedFileIdsRef.current.delete(file.id);
                   }
                 });
                 
                 // Check for NEW unassigned paid files that haven't been auto-assigned yet
-                const newUnassignedFiles = result.files.filter((file: File) => 
+                const newUnassignedFiles = nextFiles.filter((file: File) => 
                   file.status === 'paid' && 
                   !file.assignedAgentId &&
                   !assignedFileIdsRef.current.has(file.id) // Only files we haven't processed yet
                 );
                 
                 console.log('[Files Page] Smart-assign check:', {
-                  totalFiles: result.files.length,
-                  paidFiles: result.files.filter((f: File) => f.status === 'paid').length,
+                  totalFiles: nextFiles.length,
+                  paidFiles: nextFiles.filter((f: File) => f.status === 'paid').length,
                   unassignedPaidFiles: newUnassignedFiles.length,
                   isAutoAssigning
                 });
@@ -220,6 +279,7 @@ export default function FilesPage() {
               // Silent fail - real-time updates will retry
             });
         } else {
+          trackFileChanges([]);
           setFiles([]);
         }
         
@@ -236,7 +296,7 @@ export default function FilesPage() {
     return () => {
       unsubscribe();
     };
-  }, [filter, daysFilter, isAuthenticated, authLoading]); // Re-subscribe when filters or auth state changes
+  }, [filter, daysFilter, isAuthenticated, authLoading, trackFileChanges]); // Re-subscribe when filters or auth state changes
 
   useEffect(() => {
     // Load agents on mount
@@ -259,7 +319,9 @@ export default function FilesPage() {
       if (!forceRefresh) {
         const cached = getCached<{ files: File[] }>(cacheKey);
         if (isFresh(cached, ttlMs)) {
-          setFiles(cached!.data.files || []);
+          const cachedFiles = cached!.data.files || [];
+          trackFileChanges(cachedFiles);
+          setFiles(cachedFiles);
           setError("");
           setIsLoading(false);
           isLoadingFilesRef.current = false;
@@ -292,8 +354,10 @@ export default function FilesPage() {
         throw new Error(result.message || 'Failed to load files');
       }
       
-      setFiles(result.files || []);
-      setCached(cacheKey, { files: result.files || [] });
+      const freshFiles = result.files || [];
+      trackFileChanges(freshFiles);
+      setFiles(freshFiles);
+      setCached(cacheKey, { files: freshFiles });
       setError("");
     } catch (error: any) {
       console.error('Error loading files:', error);
@@ -309,13 +373,14 @@ export default function FilesPage() {
       
       // Only set empty array on non-connection errors
       if (!error.message?.includes('connection') && !error.message?.includes('timeout')) {
+        trackFileChanges([]);
         setFiles([]);
       }
     } finally {
       setIsLoading(false);
       isLoadingFilesRef.current = false;
     }
-  }, [filter, daysFilter]);
+  }, [filter, daysFilter, trackFileChanges]);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -371,9 +436,11 @@ export default function FilesPage() {
         throw new Error(result.message || 'Failed to assign files');
       }
       
+      const filesToClear = [...selectedFiles];
       setShowAssignModal(false);
       setSelectedFiles([]);
       setSelectedAgent("");
+      clearChangeFlags(filesToClear);
       deleteCached(getCacheKey(['admin-files', filter]));
       await loadFiles(true); // Force refresh
       alert('Files assigned successfully');
@@ -411,6 +478,7 @@ export default function FilesPage() {
         throw new Error(result.message || 'Failed to reassign file');
       }
       
+      clearChangeFlags([fileId]);
       deleteCached(getCacheKey(['admin-files', filter]));
       await loadFiles(true);
       alert('File reassigned successfully! Agent performance stats will update shortly.');
@@ -497,6 +565,7 @@ export default function FilesPage() {
       deleteCached(cacheKey);
       
       alert('File deleted successfully!');
+      clearChangeFlags([fileId]);
       await loadFiles(true);
       
     } catch (error: any) {
@@ -576,6 +645,7 @@ export default function FilesPage() {
         `${agent.agentName}: ${agent.pendingFiles} pending, ${agent.completedFiles} completed, ${agent.totalWorkload} total`
       ).join('\n');
       
+      clearChangeFlags(fileIds);
       deleteCached(getCacheKey(['admin-files']));
       // Don't reload - real-time listener will update
       
@@ -618,6 +688,7 @@ export default function FilesPage() {
         alert('File assigned successfully!');
       }
       
+      clearChangeFlags([fileId]);
       deleteCached(getCacheKey(['admin-files', filter]));
       await loadFiles(true);
     } catch (error: any) {
@@ -683,6 +754,7 @@ export default function FilesPage() {
     if (!confirmed) return;
     try {
       const prev = files;
+      const filesToClear = [...selectedFiles];
       setFiles(prev.filter(f => !selectedFiles.includes(f.id)));
       const response = await fetch('/api/admin/files', {
         method: 'DELETE',
@@ -700,6 +772,7 @@ export default function FilesPage() {
       deleteCached(cacheKey);
       
       setSelectedFiles([]);
+      clearChangeFlags(filesToClear);
       await loadFiles(true);
       alert(result.message || 'Deleted selected files');
     } catch (e: any) {
@@ -826,6 +899,7 @@ export default function FilesPage() {
                   { key: "paid", label: "Paid" },
                   { key: "processing", label: "Processing" },
                   { key: "completed", label: "Completed" },
+                  { key: "replacement", label: "Replacement" },
                 ].map((filterOption) => (
                   <button
                     key={filterOption.key}
@@ -922,8 +996,14 @@ export default function FilesPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredFiles.map((file) => (
-                    <tr key={file.id} className="hover:bg-gray-50">
+                  {filteredFiles.map((file) => {
+                    const fileIsUpdated = changedFileIds.has(file.id);
+                    const statusKey = file.status || 'unknown';
+                    const showAssignmentControls = ['paid', 'assigned', 'processing', 'replacement'].includes(statusKey) || fileIsUpdated;
+                    const currentAgentName = file.assignedAgentId ? (agents.find(a => a.id === file.assignedAgentId)?.name || 'Unknown') : '';
+                    const smartAssignLabel = file.assignedAgentId && fileIsUpdated ? 'Smart Reassign' : 'Smart Assign';
+                    return (
+                      <tr key={file.id} className={`hover:bg-gray-50 ${fileIsUpdated ? 'bg-amber-50/70' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input
                           type="checkbox"
@@ -946,6 +1026,11 @@ export default function FilesPage() {
                             <div className="text-sm font-medium text-gray-900">
                               {file.originalName || file.filename || 'Unknown File'}
                             </div>
+                            {fileIsUpdated && (
+                              <span className="mt-1 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                                File updated
+                              </span>
+                            )}
                             <div className="text-sm text-gray-500">
                               {formatFileSize(file.size || 0)} • {file.mimeType || 'Unknown'}
                             </div>
@@ -973,6 +1058,11 @@ export default function FilesPage() {
                         ) : (
                           <span className="text-sm text-gray-500">Unassigned</span>
                         )}
+                        {fileIsUpdated && (
+                          <p className="text-xs text-amber-700 mt-1 font-medium">
+                            Original file changed — reassign if needed.
+                          </p>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
@@ -984,7 +1074,7 @@ export default function FilesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          {(['paid', 'assigned', 'processing'].includes(file.status || 'unknown')) && (
+                          {showAssignmentControls && (
                             <>
                               <select
                                 onChange={(e) => {
@@ -1001,9 +1091,11 @@ export default function FilesPage() {
                                 className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
                               >
                                 <option value="">
-                                  {file.assignedAgentId 
-                                    ? `Change from ${agents.find(a => a.id === file.assignedAgentId)?.name || 'Unknown'}` 
-                                    : 'Assign to...'}
+                                  {fileIsUpdated
+                                    ? 'File updated - reassign to...'
+                                    : file.assignedAgentId 
+                                      ? `Change from ${currentAgentName}` 
+                                      : 'Assign to...'}
                                 </option>
                                 <option value="none">❌ Unassign</option>
                                 {agents.map(agent => (
@@ -1016,13 +1108,13 @@ export default function FilesPage() {
                                   </option>
                                 ))}
                               </select>
-                              {!file.assignedAgentId && (
+                              {(!file.assignedAgentId || fileIsUpdated) && (
                                 <button
                                   onClick={() => handleSmartAssignSingle(file.id)}
                                   className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200 transition-colors"
                                   title="Smart assign based on agent workload (completed + pending)"
                                 >
-                                  Smart Assign
+                                  {smartAssignLabel}
                                 </button>
                               )}
                             </>
@@ -1046,16 +1138,23 @@ export default function FilesPage() {
                           </button>
                         </div>
                       </td>
-                    </tr>
-                  ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* Mobile Cards */}
             <div className="md:hidden space-y-4 p-4">
-              {filteredFiles.map((file) => (
-                <div key={`mobile-${file.id}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              {filteredFiles.map((file) => {
+                const fileIsUpdated = changedFileIds.has(file.id);
+                const statusKey = file.status || 'unknown';
+                const showAssignmentControls = ['paid', 'assigned', 'processing', 'replacement'].includes(statusKey) || fileIsUpdated;
+                const currentAgentName = file.assignedAgentId ? (agents.find(a => a.id === file.assignedAgentId)?.name || 'Unknown') : '';
+                const smartAssignLabel = file.assignedAgentId && fileIsUpdated ? 'Smart Reassign' : 'Smart Assign';
+                return (
+                <div key={`mobile-${file.id}`} className={`rounded-lg p-4 border ${fileIsUpdated ? 'border-amber-300 bg-amber-50/70' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="flex items-start space-x-3 mb-3">
                     <input
                       type="checkbox"
@@ -1074,6 +1173,11 @@ export default function FilesPage() {
                           <h3 className="text-sm font-medium text-gray-900 truncate">
                             {file.originalName || file.filename || 'Unknown File'}
                           </h3>
+                          {fileIsUpdated && (
+                            <span className="mt-1 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                              File updated
+                            </span>
+                          )}
                           <p className="text-xs text-gray-500">
                             {formatFileSize(file.size || 0)} • {file.mimeType || 'Unknown'}
                           </p>
@@ -1090,6 +1194,11 @@ export default function FilesPage() {
                         <p className="text-sm text-gray-600">
                           <span className="font-medium">Agent:</span> {file.agent ? file.agent.name : 'Unassigned'}
                         </p>
+                        {fileIsUpdated && (
+                          <p className="text-xs text-amber-700 font-medium">
+                            Original file changed — reassign if needed.
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600">
                           <span className="font-medium">Upload:</span> {file.uploadedAt ? formatDate(file.uploadedAt).date : 'Unknown'}
                         </p>
@@ -1101,7 +1210,7 @@ export default function FilesPage() {
                       </div>
                       
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {(['paid', 'assigned', 'processing'].includes(file.status || 'unknown')) && (
+                        {showAssignmentControls && (
                           <select
                             onChange={(e) => {
                               const selectedValue = e.target.value;
@@ -1117,9 +1226,11 @@ export default function FilesPage() {
                             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
                           >
                             <option value="">
-                              {file.assignedAgentId 
-                                ? `Change from ${agents.find(a => a.id === file.assignedAgentId)?.name || 'Unknown'}` 
-                                : 'Assign to...'}
+                              {fileIsUpdated
+                                ? 'File updated - reassign to...'
+                                : file.assignedAgentId 
+                                  ? `Change from ${currentAgentName}` 
+                                  : 'Assign to...'}
                             </option>
                             <option value="none">❌ Unassign</option>
                             {agents.map(agent => (
@@ -1133,6 +1244,14 @@ export default function FilesPage() {
                             ))}
                           </select>
                         )}
+                        {showAssignmentControls && (!file.assignedAgentId || fileIsUpdated) && (
+                          <button
+                            onClick={() => handleSmartAssignSingle(file.id)}
+                            className="bg-purple-100 text-purple-700 px-3 py-2 rounded-lg hover:bg-purple-200 transition-colors text-xs"
+                          >
+                            {smartAssignLabel}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDeleteFile(file.id)}
                           className="bg-red-600 text-white text-xs px-3 py-1 rounded hover:bg-red-700"
@@ -1143,7 +1262,8 @@ export default function FilesPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

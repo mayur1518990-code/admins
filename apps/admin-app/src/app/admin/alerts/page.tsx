@@ -37,6 +37,7 @@ export default function AlertsPage() {
   const [contactNumbersActive, setContactNumbersActive] = useState(true);
   const [newContactNumber, setNewContactNumber] = useState("");
   const [savingContactNumbers, setSavingContactNumbers] = useState(false);
+  const [defaultTimerMinutes, setDefaultTimerMinutes] = useState(10);
 
   // Fetch alerts
   const fetchAlerts = async () => {
@@ -67,9 +68,25 @@ export default function AlertsPage() {
     }
   };
 
+  // Fetch settings
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch("/api/admin/settings");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.settings) {
+          setDefaultTimerMinutes(data.settings.defaultEditTimerMinutes || 10);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching settings:", error);
+    }
+  };
+
   useEffect(() => {
     fetchAlerts();
     fetchContactNumbers();
+    fetchSettings();
   }, []);
 
   // Create alert
@@ -286,6 +303,60 @@ export default function AlertsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* File Edit Timer Settings Section */}
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+              <h2 className="text-xl font-semibold mb-4">File Edit Timer Settings</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Set the default edit timer duration. When an agent uploads a completed file, users will automatically be able to edit the file for this duration. Timer starts automatically when the completed file becomes visible to the user.
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Default Edit Timer Duration
+                  </label>
+                  <select
+                    id="defaultTimerMinutes"
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={defaultTimerMinutes}
+                    onChange={async (e) => {
+                      const timerMinutes = parseInt(e.target.value);
+                      
+                      try {
+                        const response = await fetch('/api/admin/settings', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ defaultEditTimerMinutes: timerMinutes }),
+                        });
+                        
+                        const result = await response.json();
+                        if (result.success) {
+                          setDefaultTimerMinutes(timerMinutes);
+                          alert(`Timer duration updated to ${timerMinutes} minutes! This will apply to all newly completed files.`);
+                        } else {
+                          alert(`Failed to update timer: ${result.error}`);
+                        }
+                      } catch (error) {
+                        console.error('Error updating timer:', error);
+                        alert('Error updating timer');
+                      }
+                    }}
+                  >
+                    <option value="5">5 minutes</option>
+                    <option value="10">10 minutes</option>
+                    <option value="15">15 minutes</option>
+                    <option value="20">20 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="120">2 hours</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">
+                    This timer will automatically start when an agent uploads a completed file and it becomes visible to the user.
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Contact Numbers Section */}

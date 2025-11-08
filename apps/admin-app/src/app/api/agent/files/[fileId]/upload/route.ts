@@ -102,6 +102,10 @@ export async function POST(
       const completedFileRef = adminDb.collection('completedFiles').doc();
       const completedFileId = completedFileRef.id;
 
+      // Get default timer from settings
+      const settingsDoc = await adminDb.collection('settings').doc('app_settings').get();
+      const defaultTimerMinutes = settingsDoc.exists ? (settingsDoc.data()?.defaultEditTimerMinutes || 10) : 10;
+
       // OPTIMIZATION: Parallel database operations (3 operations in parallel)
       await Promise.all([
         completedFileRef.set({
@@ -112,7 +116,10 @@ export async function POST(
           status: 'completed',
           completedFileId,
           completedAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          // Automatically start timer when file is completed
+          editTimerMinutes: defaultTimerMinutes,
+          editTimerStartedAt: new Date().toISOString()
         }),
         adminDb.collection('logs').add({
           action: 'file_completed',
@@ -130,6 +137,12 @@ export async function POST(
       const agentDashboardKey = makeKey('agent-dashboard', [agent.agentId, '30d']);
       const agentDashboard7dKey = makeKey('agent-dashboard', [agent.agentId, '7d']);
       const agentDashboard90dKey = makeKey('agent-dashboard', [agent.agentId, '90d']);
+      
+      // Clear user cache so timer appears immediately
+      if (fileData.userId) {
+        const userFilesCacheKey = makeKey('user_files', [fileData.userId]);
+        serverCache.delete(userFilesCacheKey);
+      }
       
       serverCache.delete(agentFilesCacheKey);
       serverCache.delete(agentDashboardKey);

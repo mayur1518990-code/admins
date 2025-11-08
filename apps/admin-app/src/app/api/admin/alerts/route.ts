@@ -76,6 +76,16 @@ export async function POST(request: NextRequest) {
     const docRef = await db.collection("alerts").add(alertData);
     console.log('[Alerts API] Alert created successfully with ID:', docRef.id);
 
+    // Clear user-app alert cache to force refresh (non-blocking)
+    // Note: This is best-effort. The timestamp-based polling will detect changes anyway.
+    if (typeof fetch !== 'undefined') {
+      fetch(`${process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:3001'}/api/alerts`, {
+        method: 'DELETE',
+      }).catch(() => {
+        // Ignore errors - cache clearing is best effort, polling will handle updates
+      });
+    }
+
     return NextResponse.json({
       success: true,
       id: docRef.id,
@@ -124,6 +134,16 @@ export async function PATCH(request: NextRequest) {
       updatedAt: new Date(),
     });
 
+    // Clear user-app alert cache to force refresh (non-blocking)
+    // Note: This is best-effort. The timestamp-based polling will detect changes anyway.
+    if (typeof fetch !== 'undefined') {
+      fetch(`${process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:3001'}/api/alerts`, {
+        method: 'DELETE',
+      }).catch(() => {
+        // Ignore errors - cache clearing is best effort, polling will handle updates
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error updating alert:", error);
@@ -157,6 +177,16 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.collection("alerts").doc(id).delete();
+
+    // Clear user-app alert cache to force refresh (non-blocking)
+    // Note: This is best-effort. The timestamp-based polling will detect changes anyway.
+    if (typeof fetch !== 'undefined') {
+      fetch(`${process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:3001'}/api/alerts`, {
+        method: 'DELETE',
+      }).catch(() => {
+        // Ignore errors - cache clearing is best effort, polling will handle updates
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

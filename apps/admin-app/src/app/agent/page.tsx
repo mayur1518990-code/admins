@@ -308,6 +308,7 @@ export default function AgentDashboard() {
       console.log('[UPLOAD] Server response:', data);
       
       if (data.success) {
+        const wasReupload = selectedFile?.status === 'completed';
         setUploadFile(null);
         setSelectedFile(null);
         
@@ -315,7 +316,10 @@ export default function AgentDashboard() {
         await fetchAssignedFiles(true);
         
         // Now show the alert after data is refreshed
-        alert('File uploaded successfully! ✅\n\nThe page has been refreshed and your Completed count has been updated.');
+        const message = wasReupload 
+          ? 'File reuploaded successfully! ✅\n\nThe page has been refreshed with the new file.'
+          : 'File uploaded successfully! ✅\n\nThe page has been refreshed and your Completed count has been updated.';
+        alert(message);
       } else {
         alert(`Failed to upload file: ${data.error || 'Unknown error'}`);
       }
@@ -644,12 +648,12 @@ export default function AgentDashboard() {
                             Start Processing
                           </button>
                         )}
-                        {file.status === 'processing' && (
+                        {(file.status === 'processing' || file.status === 'completed') && (
                           <button
                             onClick={() => setSelectedFile(file)}
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
                           >
-                            Upload Completed
+                            {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
                           </button>
                         )}
                       </div>
@@ -850,12 +854,12 @@ export default function AgentDashboard() {
                             </button>
                           )}
 
-                          {file.status === 'processing' && (
+                          {(file.status === 'processing' || file.status === 'completed') && (
                             <button
                               onClick={() => setSelectedFile(file)}
                               className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
                             >
-                              Upload Completed
+                              {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
                             </button>
                           )}
 
@@ -969,12 +973,12 @@ export default function AgentDashboard() {
                               </button>
                             )}
 
-                            {file.status === 'processing' && (
+                            {(file.status === 'processing' || file.status === 'completed') && (
                               <button
                                 onClick={() => setSelectedFile(file)}
                                 className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
                               >
-                                Upload Completed
+                                {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
                               </button>
                             )}
 
@@ -1001,10 +1005,13 @@ export default function AgentDashboard() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Upload Completed File
+              {selectedFile.status === 'completed' ? 'Reupload Completed File' : 'Upload Completed File'}
             </h3>
             <p className="text-sm text-gray-600 mb-4">
-              Upload the completed file for: <strong>{selectedFile.originalName}</strong>
+              {selectedFile.status === 'completed' 
+                ? <>Reupload the completed file for: <strong>{selectedFile.originalName}</strong></>
+                : <>Upload the completed file for: <strong>{selectedFile.originalName}</strong></>
+              }
             </p>
             
             <div className="mb-4">

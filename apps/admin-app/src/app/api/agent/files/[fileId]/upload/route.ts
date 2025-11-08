@@ -36,11 +36,11 @@ export async function POST(
       }, { status: 403 });
     }
 
-    // Verify the file is in processing status
-    if (fileData?.status !== 'processing') {
+    // Verify the file is in processing or completed status (allow reupload for completed files)
+    if (fileData?.status !== 'processing' && fileData?.status !== 'completed') {
       return NextResponse.json({
         success: false,
-        error: 'File must be in processing status to upload completed file'
+        error: 'File must be in processing or completed status to upload completed file'
       }, { status: 400 });
     }
 
@@ -106,23 +106,32 @@ export async function POST(
       const settingsDoc = await adminDb.collection('settings').doc('app_settings').get();
       const defaultTimerMinutes = settingsDoc.exists ? (settingsDoc.data()?.defaultEditTimerMinutes || 10) : 10;
 
+      // Determine if this is a reupload (status is already completed)
+      const isReupload = fileData?.status === 'completed';
+      
+      // Prepare file update data
+      const fileUpdateData: any = {
+        completedFileId,
+        completedAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      // Only update status and timer if file is not already completed
+      if (!isReupload) {
+        fileUpdateData.status = 'completed';
+        fileUpdateData.editTimerMinutes = defaultTimerMinutes;
+        fileUpdateData.editTimerStartedAt = new Date().toISOString();
+      }
+
       // OPTIMIZATION: Parallel database operations (3 operations in parallel)
       await Promise.all([
         completedFileRef.set({
           id: completedFileId,
           ...completedFileData
         }),
-        adminDb.collection('files').doc(fileId).update({
-          status: 'completed',
-          completedFileId,
-          completedAt: new Date(),
-          updatedAt: new Date(),
-          // Automatically start timer when file is completed
-          editTimerMinutes: defaultTimerMinutes,
-          editTimerStartedAt: new Date().toISOString()
-        }),
+        adminDb.collection('files').doc(fileId).update(fileUpdateData),
         adminDb.collection('logs').add({
-          action: 'file_completed',
+          action: isReupload ? 'file_reuploaded' : 'file_completed',
           agentId: agent.agentId,
           agentName: agent.name,
           fileId,

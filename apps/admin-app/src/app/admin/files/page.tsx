@@ -69,6 +69,7 @@ interface File {
     id: string;
     name: string;
     email: string;
+    phone?: string;
   };
   agent?: {
     id: string;
@@ -1039,11 +1040,22 @@ export default function FilesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {file.user?.name || 'Unknown User'}
+                          {file.user 
+                            ? (() => {
+                                const name = file.user.name && file.user.name !== 'Unknown' ? file.user.name : null;
+                                const phone = file.user.phone;
+                                if (!name && !phone) {
+                                  return 'Unknown User';
+                                }
+                                return name || 'Unknown User';
+                              })()
+                            : 'Unknown User'}
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {file.user?.email || 'No email'}
-                        </div>
+                        {file.user?.phone && (
+                          <div className="text-sm text-gray-500">
+                            {file.user.phone}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(file.status || 'unknown')}`}>
@@ -1186,11 +1198,15 @@ export default function FilesPage() {
                       
                       <div className="space-y-1 ml-10">
                         <p className="text-sm text-gray-600">
-                          <span className="font-medium">User:</span> {file.user?.name || 'Unknown'}
+                          <span className="font-medium">User:</span> {file.user 
+                            ? (file.user.name && file.user.name !== 'Unknown' ? file.user.name : 'Unknown')
+                            : 'Unknown'}
                         </p>
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Email:</span> {file.user?.email || 'No email'}
-                        </p>
+                        {file.user?.phone && (
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Phone:</span> {file.user.phone}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600">
                           <span className="font-medium">Agent:</span> {file.agent ? file.agent.name : 'Unassigned'}
                         </p>

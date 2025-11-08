@@ -148,12 +148,66 @@ export async function GET(request: NextRequest) {
       if (fileData.status === 'completed' && fileData.completedFileId) {
         const completedData = completedFileMap.get(fileData.completedFileId);
         if (completedData) {
+          // Handle Firestore Timestamp conversion
+          let uploadedAt = '';
+          if (completedData.uploadedAt) {
+            if (completedData.uploadedAt.toDate) {
+              // Firestore Timestamp object
+              uploadedAt = completedData.uploadedAt.toDate().toISOString();
+            } else if (completedData.uploadedAt instanceof Date) {
+              // Already a Date object
+              uploadedAt = completedData.uploadedAt.toISOString();
+            } else if (typeof completedData.uploadedAt === 'string') {
+              // Already a string
+              uploadedAt = completedData.uploadedAt;
+            } else {
+              // Try to convert to ISO string
+              uploadedAt = new Date(completedData.uploadedAt).toISOString();
+            }
+          }
+          
           completedFile = {
             filename: completedData.filename || '',
             originalName: completedData.originalName || '',
             size: completedData.size || 0,
-            uploadedAt: completedData.uploadedAt || ''
+            uploadedAt
           };
+        }
+      }
+
+      // Handle Firestore Timestamp conversion for assignedAt
+      let assignedAt = '';
+      if (fileData.assignedAt) {
+        if (fileData.assignedAt.toDate) {
+          // Firestore Timestamp object
+          assignedAt = fileData.assignedAt.toDate().toISOString();
+        } else if (fileData.assignedAt instanceof Date) {
+          // Already a Date object
+          assignedAt = fileData.assignedAt.toISOString();
+        } else if (typeof fileData.assignedAt === 'string') {
+          // Already a string
+          assignedAt = fileData.assignedAt;
+        } else {
+          // Try to convert to ISO string
+          assignedAt = new Date(fileData.assignedAt).toISOString();
+        }
+      }
+
+      // Handle Firestore Timestamp conversion for uploadedAt
+      let uploadedAt = '';
+      if (fileData.uploadedAt) {
+        if (fileData.uploadedAt.toDate) {
+          // Firestore Timestamp object
+          uploadedAt = fileData.uploadedAt.toDate().toISOString();
+        } else if (fileData.uploadedAt instanceof Date) {
+          // Already a Date object
+          uploadedAt = fileData.uploadedAt.toISOString();
+        } else if (typeof fileData.uploadedAt === 'string') {
+          // Already a string
+          uploadedAt = fileData.uploadedAt;
+        } else {
+          // Try to convert to ISO string
+          uploadedAt = new Date(fileData.uploadedAt).toISOString();
         }
       }
 
@@ -164,8 +218,8 @@ export async function GET(request: NextRequest) {
         size: fileData.size || 0,
         mimeType: fileData.mimeType || '',
         status: fileData.status || 'assigned',
-        uploadedAt: fileData.uploadedAt || '',
-        assignedAt: fileData.assignedAt || '',
+        uploadedAt,
+        assignedAt,
         userId: fileData.userId || '',
         userEmail,
         userPhone,

@@ -23,6 +23,7 @@ interface Transaction {
     id: string;
     name: string;
     email: string;
+    phone?: string | null;
   };
   file: {
     id: string;
@@ -545,11 +546,22 @@ export default function TransactionsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {transaction.user?.name || 'Unknown User'}
+                          {transaction.user 
+                            ? (() => {
+                                const name = transaction.user.name && transaction.user.name !== 'Unknown' ? transaction.user.name : null;
+                                const phone = transaction.user.phone;
+                                if (!name && !phone) {
+                                  return 'Unknown User';
+                                }
+                                return name || 'Unknown User';
+                              })()
+                            : 'Unknown User'}
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {transaction.user?.email || 'No email'}
-                        </div>
+                        {transaction.user?.phone && (
+                          <div className="text-sm text-gray-500">
+                            {transaction.user.phone}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
@@ -601,7 +613,9 @@ export default function TransactionsPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <h3 className="text-sm font-medium text-gray-900 truncate">
-                        {transaction.user?.name || 'Unknown User'}
+                        {transaction.user 
+                          ? (transaction.user.name && transaction.user.name !== 'Unknown' ? transaction.user.name : 'Unknown User')
+                          : 'Unknown User'}
                       </h3>
                       <p className="text-xs text-gray-500">{transaction.file?.originalName || 'Unknown File'}</p>
                     </div>
@@ -614,9 +628,11 @@ export default function TransactionsPage() {
                     <p className="text-sm text-gray-600">
                       <span className="font-medium">Order ID:</span> {transaction.razorpayOrderId}
                     </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Email:</span> {transaction.user?.email || 'No email'}
-                    </p>
+                    {transaction.user?.phone && (
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">Phone:</span> {transaction.user.phone}
+                      </p>
+                    )}
                     <p className="text-sm text-gray-600">
                       <span className="font-medium">Amount:</span> {formatCurrency(transaction.amount)} {transaction.currency?.toUpperCase() || 'INR'}
                     </p>

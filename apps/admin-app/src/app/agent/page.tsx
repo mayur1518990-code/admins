@@ -627,7 +627,10 @@ export default function AgentDashboard() {
                         <h3 className="text-lg font-medium text-gray-900">{file.originalName}</h3>
                         <p className="text-sm text-gray-500 mt-1">
                           Size: {formatFileSize(file.size)} • 
-                          Assigned: {new Date(file.assignedAt).toLocaleDateString()}
+                          Assigned: {file.assignedAt ? (() => {
+                            const date = new Date(file.assignedAt);
+                            return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                          })() : 'N/A'}
                         </p>
                       </div>
                       <div className="flex items-center space-x-2 ml-4">
@@ -790,7 +793,10 @@ export default function AgentDashboard() {
                               <div className="flex items-center space-x-4 mt-1">
                                 <p className="text-sm text-gray-500">Size: {formatFileSize(file.size)}</p>
                                 <p className="text-sm text-gray-500">
-                                  Assigned: {new Date(file.assignedAt).toLocaleDateString()}
+                                  Assigned: {file.assignedAt ? (() => {
+                                    const date = new Date(file.assignedAt);
+                                    return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                                  })() : 'N/A'}
                                 </p>
                                 {file.userEmail && (
                                   <p className="text-sm text-gray-500">User: {file.userEmail}</p>
@@ -865,7 +871,10 @@ export default function AgentDashboard() {
 
                           {file.status === 'completed' && file.completedFile && (
                             <div className="text-sm text-gray-500">
-                              Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
+                              Completed: {file.completedFile.uploadedAt ? (() => {
+                                const date = new Date(file.completedFile.uploadedAt);
+                                return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                              })() : 'N/A'}
                             </div>
                           )}
                         </div>
@@ -915,7 +924,10 @@ export default function AgentDashboard() {
                                   <span className="font-medium">Size:</span> {formatFileSize(file.size)}
                                 </p>
                                 <p className="text-sm text-gray-600">
-                                  <span className="font-medium">Assigned:</span> {new Date(file.assignedAt).toLocaleDateString()}
+                                  <span className="font-medium">Assigned:</span> {file.assignedAt ? (() => {
+                                    const date = new Date(file.assignedAt);
+                                    return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                                  })() : 'N/A'}
                                 </p>
                                 {file.userEmail && (
                                   <p className="text-sm text-gray-600">
@@ -984,7 +996,10 @@ export default function AgentDashboard() {
 
                             {file.status === 'completed' && file.completedFile && (
                               <div className="text-xs text-gray-500 w-full mt-2">
-                                Completed: {new Date(file.completedFile.uploadedAt).toLocaleDateString()}
+                                Completed: {file.completedFile.uploadedAt ? (() => {
+                                  const date = new Date(file.completedFile.uploadedAt);
+                                  return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                                })() : 'N/A'}
                               </div>
                             )}
                           </div>

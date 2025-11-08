@@ -141,6 +141,7 @@ export async function GET(request: NextRequest) {
       return { id: doc.id, ...data } as any;
     });
 
+
     // OPTIMIZED: Batch fetch users and agents with caching
     const userAgentCacheKey = makeKey('users-agents', ['lookup']);
     const cachedUserAgentData = serverCache.get<{ users: Map<string, any>, agents: Map<string, any> }>(userAgentCacheKey);
@@ -150,52 +151,30 @@ export async function GET(request: NextRequest) {
     
     if (cachedUserAgentData) {
       // Use cached data and only fetch missing ones
+      // IMPORTANT: Check if cached data has phone field, if not, invalidate cache and refetch all
+      const sampleUser = Array.from(cachedUserAgentData.users.values())[0];
+      const cacheHasPhone = sampleUser && 'phone' in sampleUser;
+      
+      if (!cacheHasPhone && cachedUserAgentData.users.size > 0) {
+        // Cache is old format without phone, invalidate it
+        serverCache.delete(userAgentCacheKey);
+        // Don't use cached data, will fetch all below
+      } else {
       usersMap = new Map(cachedUserAgentData.users);
       agentsMap = new Map(cachedUserAgentData.agents);
+      }
+    }
       
       const missingUserIds = Array.from(userIds).filter(id => !usersMap.has(id));
       const missingAgentIds = Array.from(agentIds).filter(id => !agentsMap.has(id));
       
-      if (missingUserIds.length > 0 || missingAgentIds.length > 0) {
-        // ULTRA-OPTIMIZED: For single items, use direct document fetch (faster than 'in' query)
-        const [newUserDocs, newAgentDocs] = await Promise.all([
-          missingUserIds.length === 1 
-            ? adminDb.collection('users').doc(missingUserIds[0]).get().then(doc => ({ docs: doc.exists ? [doc] : [] }))
-            : missingUserIds.length > 0 
-              ? adminDb.collection('users').where(FieldPath.documentId(), 'in', missingUserIds.slice(0, 10)).get() 
-              : Promise.resolve({ docs: [] }),
-          missingAgentIds.length === 1
-            ? adminDb.collection('agents').doc(missingAgentIds[0]).get().then(doc => ({ docs: doc.exists ? [doc] : [] }))
-            : missingAgentIds.length > 0 
-              ? adminDb.collection('agents').where(FieldPath.documentId(), 'in', missingAgentIds.slice(0, 10)).get() 
-              : Promise.resolve({ docs: [] })
-        ]);
-        
-        newUserDocs.docs.forEach((doc: any) => {
-          const data = doc.data();
-          usersMap.set(doc.id, {
-            id: doc.id,
-            name: data?.name || 'Unknown',
-            email: data?.email || 'Unknown',
-            phone: data?.phone || 'Unknown'
-          });
-        });
-        
-        newAgentDocs.docs.forEach((doc: any) => {
-          const data = doc.data();
-          agentsMap.set(doc.id, {
-            id: doc.id,
-            name: data?.name || 'Unknown',
-            email: data?.email || 'Unknown',
-            phone: data?.phone || 'Unknown'
-          });
-        });
-        
-        // Update cache with new data
-        serverCache.set(userAgentCacheKey, { users: usersMap, agents: agentsMap }, 300_000); // 5 min cache
-      }
-    } else {
-      // No cache, fetch all needed
+    // Fetch missing users/agents or all if cache was invalidated
+    const usersToFetch = usersMap.size === 0 && userIds.size > 0 ? Array.from(userIds) : missingUserIds;
+    const agentsToFetch = agentsMap.size === 0 && agentIds.size > 0 ? Array.from(agentIds) : missingAgentIds;
+    
+    
+    if (usersToFetch.length > 0 || agentsToFetch.length > 0) {
+      // Fetch missing users/agents or all if no cache
       const fetchBatch = async (collection: string, ids: string[]) => {
         if (ids.length === 0) return [];
         
@@ -218,10 +197,93 @@ export async function GET(request: NextRequest) {
         return results.flatMap(snapshot => snapshot.docs);
       };
 
-      const [userDocs, agentDocs] = await Promise.all([
-        fetchBatch('users', Array.from(userIds)),
-        fetchBatch('agents', Array.from(agentIds))
+      // For users, also check agents and admins collections (user might be in different collection)
+      // IMPORTANT: Search by document ID first, then by userId field if not found
+      const fetchUserFromAllCollections = async (userId: string) => {
+        try {
+          // Try both plural and singular collection names (prioritize 'user' since that's where data actually is)
+          const collectionNames = ['user', 'users', 'agents', 'agent', 'admins', 'admin'];
+          
+          // First try by document ID (most common case)
+          const docByIdPromises = collectionNames.map(collectionName => 
+            adminDb.collection(collectionName).doc(userId).get().catch(() => {
+              return { exists: false, id: userId, collection: collectionName };
+            })
+          );
+          
+          const docsById = await Promise.all(docByIdPromises);
+          
+          // Check which collection has the document
+          for (let i = 0; i < docsById.length; i++) {
+            const doc = docsById[i];
+            if (doc.exists) {
+              return doc;
+            }
+          }
+          
+          // Get references for fallback search
+          const userDocById = docsById[0]; // user collection
+          const agentDocById = docsById[2]; // agents collection
+          const adminDocById = docsById[4]; // admins collection
+          
+          if (userDocById.exists) {
+            return userDocById;
+          }
+          if (agentDocById.exists) {
+            return agentDocById;
+          }
+          if (adminDocById.exists) {
+            return adminDocById;
+          }
+          
+          // If not found by document ID, try searching by userId field
+          let userDocsByField, agentDocsByField, adminDocsByField;
+          try {
+            // Try searching by userId field in all collections (prioritize 'user' collection)
+            const searchQueries = [
+              adminDb.collection('user').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
+              adminDb.collection('users').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
+              adminDb.collection('agents').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
+              adminDb.collection('admins').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] }))
+            ];
+            
+            const [userDocsByUser, userDocsByUsers, agentDocsByField, adminDocsByField] = await Promise.all(searchQueries);
+            // Prioritize 'user' collection results
+            const userDocsByField = !userDocsByUser.empty ? userDocsByUser : userDocsByUsers;
+            
+            if (!userDocsByField.empty && userDocsByField.docs && userDocsByField.docs.length > 0) {
+              return userDocsByField.docs[0];
+            }
+            if (!agentDocsByField.empty && agentDocsByField.docs && agentDocsByField.docs.length > 0) {
+              return agentDocsByField.docs[0];
+            }
+            if (!adminDocsByField.empty && adminDocsByField.docs && adminDocsByField.docs.length > 0) {
+              return adminDocsByField.docs[0];
+            }
+          } catch (searchError) {
+            // Silently fail and return null
+          }
+          
+          return null;
+        } catch (error) {
+          return null;
+        }
+      };
+
+      // Fetch users - try all collections (users, agents, admins) for each user
+      const userFetchPromises = usersToFetch.map(userId => fetchUserFromAllCollections(userId));
+      const agentFetchPromises = agentsToFetch.map(agentId => 
+        adminDb.collection('agents').doc(agentId).get().catch(() => null)
+      );
+      
+      const [userResults, agentResults] = await Promise.all([
+        Promise.all(userFetchPromises),
+        Promise.all(agentFetchPromises)
       ]);
+      
+      // Filter out null results and convert to doc array format
+      const userDocs = userResults.filter((doc): doc is any => doc !== null && doc.exists);
+      const agentDocs = agentResults.filter((doc): doc is any => doc !== null && doc.exists);
       
       userDocs.forEach((doc: any) => {
         const data = doc.data();
@@ -229,9 +291,22 @@ export async function GET(request: NextRequest) {
           id: doc.id,
           name: data?.name || 'Unknown',
           email: data?.email || 'Unknown',
-          phone: data?.phone || 'Unknown'
+          phone: data?.phone || data?.phoneNumber || data?.contactNumber || null
         });
       });
+      
+      // Create placeholder user entries if users were not found
+      if (usersToFetch.length > 0 && userDocs.length === 0) {
+        // Create placeholder user entries so the UI doesn't break
+        usersToFetch.forEach(userId => {
+          usersMap.set(userId, {
+            id: userId,
+            name: 'Unknown User',
+            email: 'No email',
+            phone: null
+          });
+        });
+      }
 
       agentDocs.forEach((doc: any) => {
         const data = doc.data();
@@ -248,7 +323,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Map files with user and agent data from lookup maps (O(N) instead of O(N*M))
-    let files = filesData.map(data => ({
+    let files = filesData.map(data => {
+      const userData = data.userId ? usersMap.get(data.userId) || null : null;
+      return {
       id: data.id,
       filename: data.filename || 'Unknown',
       originalName: data.originalName || 'Unknown',
@@ -260,11 +337,12 @@ export async function GET(request: NextRequest) {
       respondedAt: data.respondedAt?.toDate?.() || data.respondedAt || null,
       responseFileURL: data.responseFileURL || null,
       responseMessage: data.responseMessage || null,
-      user: data.userId ? usersMap.get(data.userId) || null : null,
+        user: userData,
       agent: data.assignedAgentId ? agentsMap.get(data.assignedAgentId) || null : null,
       paymentId: data.paymentId || null,
       b2Key: data.b2Key || data.filename || null
-    }));
+      };
+    });
 
     // Apply days filter - show files older than specified days
     if (daysOld !== 'all') {

@@ -91,16 +91,31 @@ export async function GET(request: NextRequest) {
         
         for (let i = 0; i < userIdArray.length; i += batchSize) {
           const batch = userIdArray.slice(i, i + batchSize);
+          // Try both 'user' (singular) and 'users' (plural) collections
           batches.push(
-            adminDb.collection('users')
-              .where('__name__', 'in', batch)
-              .get()
-              .then(snapshot => {
-                snapshot.docs.forEach(doc => {
-                  map.set(doc.id, doc.data());
-                });
-              })
-              .catch(() => {}) // Ignore errors
+            Promise.all([
+              adminDb.collection('user')
+                .where('__name__', 'in', batch)
+                .get()
+                .then(snapshot => {
+                  snapshot.docs.forEach(doc => {
+                    map.set(doc.id, doc.data());
+                  });
+                })
+                .catch(() => {}), // Ignore errors
+              adminDb.collection('users')
+                .where('__name__', 'in', batch)
+                .get()
+                .then(snapshot => {
+                  snapshot.docs.forEach(doc => {
+                    // Only set if not already set from 'user' collection
+                    if (!map.has(doc.id)) {
+                      map.set(doc.id, doc.data());
+                    }
+                  });
+                })
+                .catch(() => {}) // Ignore errors
+            ])
           );
         }
         
@@ -158,8 +173,10 @@ export async function GET(request: NextRequest) {
         metadata: data.metadata || {},
         // Additional data
         user: userData ? {
-          name: userData.name,
-          email: userData.email
+          id: data.userId,
+          name: userData.name || 'Unknown',
+          email: userData.email || null,
+          phone: userData.phone || userData.phoneNumber || userData.contactNumber || null
         } : null,
         file: fileData ? {
           originalName: fileData.originalName,
@@ -177,6 +194,7 @@ export async function GET(request: NextRequest) {
         return (
           t.user?.name?.toLowerCase().includes(searchLower) ||
           t.user?.email?.toLowerCase().includes(searchLower) ||
+          t.user?.phone?.toLowerCase().includes(searchLower) ||
           t.file?.originalName?.toLowerCase().includes(searchLower) ||
           t.razorpayPaymentId?.toLowerCase().includes(searchLower) ||
           t.razorpayOrderId?.toLowerCase().includes(searchLower)
@@ -230,7 +248,7 @@ export async function GET(request: NextRequest) {
       success: true,
       transactions: paginatedTransactions,
       summary: {
-        totalTransactions: cleaned.length,
+        totalTransactions: successfulPayments, // Only count successful transactions
         totalAmount,
         successfulPayments,
         failedPayments,
@@ -239,11 +257,11 @@ export async function GET(request: NextRequest) {
       },
       // Also include stats for backward compatibility with frontend
       stats: {
-        totalTransactions: deduped.length,
+        totalTransactions: successfulPayments, // Only count successful transactions
         successfulTransactions: successfulPayments,
         failedTransactions: failedPayments,
         totalRevenue: totalAmount,
-        averageTransactionValue: cleaned.length > 0 ? totalAmount / cleaned.length : 0,
+        averageTransactionValue: successfulPayments > 0 ? totalAmount / successfulPayments : 0,
         successRate: cleaned.length > 0 ? (successfulPayments / cleaned.length) * 100 : 0
       },
       pagination: {

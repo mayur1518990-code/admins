@@ -69,6 +69,7 @@ interface File {
     id: string;
     name: string;
     email: string;
+    phone?: string | null;
   };
   agent?: {
     id: string;

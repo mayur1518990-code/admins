@@ -91,35 +91,55 @@ export async function POST(
     const completedFileRef = adminDb.collection('completedFiles').doc();
     const completedFileId = completedFileRef.id;
 
+    // Check if this is a reupload (file was already completed)
+    const isReupload = fileData.status === 'completed';
+    const previousCompletedFileId = fileData.completedFileId;
+
     // Get default timer from settings
     const settingsDoc = await adminDb.collection('settings').doc('app_settings').get();
     const defaultTimerMinutes = settingsDoc.exists ? (settingsDoc.data()?.defaultEditTimerMinutes || 10) : 10;
 
-    // OPTIMIZATION: Parallel database operations (3 operations in parallel)
+    // Prepare file update data
+    // For reuploads, keep status as 'completed' (don't change to replacement)
+    const fileUpdateData: any = {
+      completedFileId,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Only update status if it's not already completed (first-time completion)
+    if (!isReupload) {
+      fileUpdateData.status = 'completed';
+      // Automatically start timer when file is completed for the first time
+      fileUpdateData.editTimerMinutes = defaultTimerMinutes;
+      fileUpdateData.editTimerStartedAt = new Date().toISOString();
+    }
+
+    // Prepare log data (avoid undefined values for Firestore)
+    const logData: any = {
+      action: isReupload ? 'file_reuploaded' : 'file_completed',
+      agentId: agent.agentId,
+      agentName: agent.name,
+      fileId,
+      completedFileId,
+      originalFileName: fileData.originalName,
+      completedFileName: originalName,
+      timestamp: new Date()
+    };
+    
+    // Only include previousCompletedFileId if it exists (for reuploads)
+    if (isReupload && previousCompletedFileId) {
+      logData.previousCompletedFileId = previousCompletedFileId;
+    }
+
+    // OPTIMIZATION: Parallel database operations
     await Promise.all([
       completedFileRef.set({
         id: completedFileId,
         ...completedFileData
       }),
-      adminDb.collection('files').doc(fileId).update({
-        status: 'completed',
-        completedFileId,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-        // Automatically start timer when file is completed
-        editTimerMinutes: defaultTimerMinutes,
-        editTimerStartedAt: new Date().toISOString()
-      }),
-      adminDb.collection('logs').add({
-        action: 'file_completed',
-        agentId: agent.agentId,
-        agentName: agent.name,
-        fileId,
-        completedFileId,
-        originalFileName: fileData.originalName,
-        completedFileName: originalName,
-        timestamp: new Date()
-      })
+      adminDb.collection('files').doc(fileId).update(fileUpdateData),
+      adminDb.collection('logs').add(logData)
     ]);
 
     // Invalidate server-side cache so fresh data is returned

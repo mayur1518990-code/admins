@@ -65,11 +65,12 @@ export async function POST(
       }, { status: 403 });
     }
 
-    // Verify the file is in processing status
-    if (fileData?.status !== 'processing') {
+    // Allow upload for processing status (normal upload) or completed status (reupload)
+    // Do not allow upload for replacement status (that's handled by replacement logic)
+    if (fileData?.status !== 'processing' && fileData?.status !== 'completed') {
       return NextResponse.json({
         success: false,
-        error: 'File must be in processing status to upload completed file'
+        error: 'File must be in processing or completed status to upload completed file'
       }, { status: 400 });
     }
 

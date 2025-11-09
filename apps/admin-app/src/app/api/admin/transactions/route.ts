@@ -91,31 +91,16 @@ export async function GET(request: NextRequest) {
         
         for (let i = 0; i < userIdArray.length; i += batchSize) {
           const batch = userIdArray.slice(i, i + batchSize);
-          // Try both 'user' (singular) and 'users' (plural) collections
           batches.push(
-            Promise.all([
-              adminDb.collection('user')
-                .where('__name__', 'in', batch)
-                .get()
-                .then(snapshot => {
-                  snapshot.docs.forEach(doc => {
-                    map.set(doc.id, doc.data());
-                  });
-                })
-                .catch(() => {}), // Ignore errors
-              adminDb.collection('users')
-                .where('__name__', 'in', batch)
-                .get()
-                .then(snapshot => {
-                  snapshot.docs.forEach(doc => {
-                    // Only set if not already set from 'user' collection
-                    if (!map.has(doc.id)) {
-                      map.set(doc.id, doc.data());
-                    }
-                  });
-                })
-                .catch(() => {}) // Ignore errors
-            ])
+            adminDb.collection('user')
+              .where('__name__', 'in', batch)
+              .get()
+              .then(snapshot => {
+                snapshot.docs.forEach(doc => {
+                  map.set(doc.id, doc.data());
+                });
+              })
+              .catch(() => {}) // Ignore errors
           );
         }
         
@@ -173,10 +158,8 @@ export async function GET(request: NextRequest) {
         metadata: data.metadata || {},
         // Additional data
         user: userData ? {
-          id: data.userId,
-          name: userData.name || 'Unknown',
-          email: userData.email || null,
-          phone: userData.phone || userData.phoneNumber || userData.contactNumber || null
+          name: (userData.name && userData.name.trim()) || 'Unknown User',
+          phone: (userData.phone && userData.phone.trim()) || 'No phone'
         } : null,
         file: fileData ? {
           originalName: fileData.originalName,
@@ -193,7 +176,6 @@ export async function GET(request: NextRequest) {
       transactions = transactions.filter((t: any) => {
         return (
           t.user?.name?.toLowerCase().includes(searchLower) ||
-          t.user?.email?.toLowerCase().includes(searchLower) ||
           t.user?.phone?.toLowerCase().includes(searchLower) ||
           t.file?.originalName?.toLowerCase().includes(searchLower) ||
           t.razorpayPaymentId?.toLowerCase().includes(searchLower) ||
@@ -202,28 +184,36 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Deduplicate transactions by fileId (primary). If missing, fallback to orderId, then doc id.
-    // Prefer rows that have linked file/user data; then prefer better status; then latest update.
+    // STRICT DEDUPLICATION: Count only unique fileIds (one transaction per file)
+    // Prefer captured/successful transactions, then by newest timestamp
     const statusRank: Record<string, number> = { captured: 4, refunded: 3, failed: 2, pending: 1 } as any;
     const dedupedMap = new Map<string, any>();
+    
     for (const t of transactions) {
+      // Primary key: fileId (one transaction per file)
+      // Fallback: razorpayOrderId (if no fileId)
+      // Last resort: transaction id (if no fileId or orderId)
       const key = t.fileId || t.razorpayOrderId || t.id;
+      
       const current = dedupedMap.get(key);
       if (!current) {
         dedupedMap.set(key, t);
         continue;
       }
+      
+      // Compare transactions to keep the best one
       const currentRank = statusRank[(current.status || 'pending').toLowerCase()] || 0;
       const newRank = statusRank[(t.status || 'pending').toLowerCase()] || 0;
       const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime();
       const newTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
-      const currentHasLinks = (current.file ? 1 : 0) + (current.user ? 1 : 0);
-      const newHasLinks = (t.file ? 1 : 0) + (t.user ? 1 : 0);
-      // Prefer linked rows; then better status; then newer time
+      const currentHasFile = current.file ? 1 : 0;
+      const newHasFile = t.file ? 1 : 0;
+      
+      // STRICT: Prefer transactions with files, then better status, then newer time
       if (
-        newHasLinks > currentHasLinks ||
-        (newHasLinks === currentHasLinks && newRank > currentRank) ||
-        (newHasLinks === currentHasLinks && newRank === currentRank && newTime > currentTime)
+        newHasFile > currentHasFile ||
+        (newHasFile === currentHasFile && newRank > currentRank) ||
+        (newHasFile === currentHasFile && newRank === currentRank && newTime > currentTime)
       ) {
         dedupedMap.set(key, t);
       }
@@ -248,20 +238,21 @@ export async function GET(request: NextRequest) {
       success: true,
       transactions: paginatedTransactions,
       summary: {
-        totalTransactions: successfulPayments, // Only count successful transactions
+        totalTransactions: cleaned.length,
         totalAmount,
         successfulPayments,
         failedPayments,
         pendingPayments,
-        successRate: deduped.length > 0 ? ((successfulPayments / deduped.length) * 100).toFixed(2) : 0
+        successRate: cleaned.length > 0 ? ((successfulPayments / cleaned.length) * 100).toFixed(2) : 0
       },
       // Also include stats for backward compatibility with frontend
+      // Use cleaned.length to only count transactions with linked files (actual transactions)
       stats: {
-        totalTransactions: successfulPayments, // Only count successful transactions
+        totalTransactions: cleaned.length,
         successfulTransactions: successfulPayments,
         failedTransactions: failedPayments,
         totalRevenue: totalAmount,
-        averageTransactionValue: successfulPayments > 0 ? totalAmount / successfulPayments : 0,
+        averageTransactionValue: cleaned.length > 0 ? totalAmount / cleaned.length : 0,
         successRate: cleaned.length > 0 ? (successfulPayments / cleaned.length) * 100 : 0
       },
       pagination: {

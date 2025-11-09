@@ -82,11 +82,19 @@ export async function GET(request: NextRequest) {
     if (!fresh) {
       const cached = serverCache.get<{ files: any[] }>(cacheKey);
       if (cached) {
+        // Even if cached, check if there are replacement files - if cached data doesn't have them,
+        // we should fetch fresh to ensure replacement files are visible immediately
+        const hasReplacementInCache = cached.files?.some(f => f.status === 'replacement');
+        // If cache exists but no replacement files, still use cache (normal case)
+        // But if fresh is requested, always bypass cache
         return NextResponse.json({
           success: true,
           files: cached.files
         });
       }
+    } else {
+      // Fresh data requested - clear server cache to ensure latest replacement status
+      serverCache.delete(cacheKey);
     }
 
     // Use the utility function to find files with multiple ID formats
@@ -230,8 +238,10 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Cache the result for 3 minutes (agent files change frequently)
-    serverCache.set(cacheKey, { files }, 180_000);
+    // Cache the result - shorter cache time if replacement files exist (for faster updates)
+    const hasReplacementFiles = files.some(f => f.status === 'replacement');
+    const cacheTime = hasReplacementFiles ? 30_000 : 180_000; // 30s for replacement, 3min for normal
+    serverCache.set(cacheKey, { files }, cacheTime);
 
     return NextResponse.json({
       success: true,

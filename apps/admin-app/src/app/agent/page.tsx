@@ -54,6 +54,7 @@ export default function AgentDashboard() {
   const [deleting, setDeleting] = useState(false);
   const [updatedFileIds, setUpdatedFileIds] = useState<Set<string>>(() => new Set());
   const previousFileSignaturesRef = useRef<Map<string, string>>(new Map());
+  const isInitialLoadRef = useRef(true); // Track if this is the first load after login
 
   const trackFileUpdates = useCallback((incomingFiles: AssignedFile[]) => {
     const currentIds = new Set(incomingFiles.map(file => file.id));
@@ -119,7 +120,11 @@ export default function AgentDashboard() {
       const cacheKey = getCacheKey(['agent-files']);
       if (!forceRefresh) {
         const cached = getCached<{ files: AssignedFile[] }>(cacheKey);
-        if (isFresh(cached, 180_000)) { // 3 minutes cache
+        // Reduced cache time for replacement files to ensure fresh data
+        // Check if there are replacement files - if so, use shorter cache (30 seconds)
+        const hasReplacementFiles = cached?.data?.files?.some(f => f.status === 'replacement');
+        const cacheTime = hasReplacementFiles ? 30_000 : 180_000; // 30s for replacement, 3min for normal
+        if (isFresh(cached, cacheTime)) {
           const cachedFiles = cached!.data.files || [];
           trackFileUpdates(cachedFiles);
           setFiles(cachedFiles);
@@ -153,9 +158,19 @@ export default function AgentDashboard() {
     }
   }, [trackFileUpdates]); // Stable callback with change tracking
 
-  // Load files on mount
+  // Load files on mount - always fetch fresh data on initial load to ensure replacement files are visible
   useEffect(() => {
-    fetchAssignedFiles();
+    // On first load after login, always fetch fresh data to ensure replacement files are immediately visible
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false; // Mark as no longer initial load
+      // Clear cache and force fresh fetch on initial mount (after login)
+      const cacheKey = getCacheKey(['agent-files']);
+      deleteCached(cacheKey);
+      fetchAssignedFiles(true); // Force refresh on initial load
+    } else {
+      // Subsequent loads can use cache
+      fetchAssignedFiles(false);
+    }
   }, [fetchAssignedFiles]);
 
   // Clear selections when filter changes
@@ -620,7 +635,7 @@ export default function AgentDashboard() {
                 return (
                   <div
                     key={`replacement-${file.id}`}
-                    className="p-6 hover:bg-orange-100"
+                    className="p-6 hover:bg-orange-100 bg-orange-50 border-l-4 border-orange-400"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
@@ -651,14 +666,16 @@ export default function AgentDashboard() {
                             Start Processing
                           </button>
                         )}
-                        {(file.status === 'processing' || file.status === 'completed') && (
+                        {/* For replacement files, only show upload if processing (not reupload) */}
+                        {file.status === 'processing' && (
                           <button
                             onClick={() => setSelectedFile(file)}
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
                           >
-                            {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
+                            Upload Completed
                           </button>
                         )}
+                        {/* Replacement files that are completed should not show reupload (replacement logic handles this) */}
                       </div>
                     </div>
                   </div>
@@ -756,10 +773,17 @@ export default function AgentDashboard() {
                   const status = file.status;
                   const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
                   const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
+                  const isReplacement = status === 'replacement';
                   return (
                     <div
                       key={file.id}
-                      className={`p-6 hover:bg-gray-50 ${fileHasUpdate ? 'bg-amber-50/70 border-l-4 border-amber-300' : ''}`}
+                      className={`p-6 hover:bg-gray-50 ${
+                        isReplacement 
+                          ? 'bg-orange-50 border-l-4 border-orange-400' 
+                          : fileHasUpdate 
+                            ? 'bg-amber-50/70 border-l-4 border-amber-300' 
+                            : ''
+                      }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
@@ -860,12 +884,22 @@ export default function AgentDashboard() {
                             </button>
                           )}
 
-                          {(file.status === 'processing' || file.status === 'completed') && (
+                          {/* Show upload button for processing status (normal upload) */}
+                          {file.status === 'processing' && (
                             <button
                               onClick={() => setSelectedFile(file)}
                               className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
                             >
-                              {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
+                              Upload Completed
+                            </button>
+                          )}
+                          {/* Show reupload button only for completed files (not replacement) */}
+                          {file.status === 'completed' && (
+                            <button
+                              onClick={() => setSelectedFile(file)}
+                              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+                            >
+                              Reupload
                             </button>
                           )}
 
@@ -891,10 +925,17 @@ export default function AgentDashboard() {
                   const status = file.status;
                   const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
                   const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
+                  const isReplacement = status === 'replacement';
                   return (
                     <div
                       key={`mobile-${file.id}`}
-                      className={`rounded-lg p-4 border ${fileHasUpdate ? 'border-amber-300 bg-amber-50/70' : 'bg-gray-50 border-gray-200'}`}
+                      className={`rounded-lg p-4 border ${
+                        isReplacement 
+                          ? 'border-orange-400 bg-orange-50' 
+                          : fileHasUpdate 
+                            ? 'border-amber-300 bg-amber-50/70' 
+                            : 'bg-gray-50 border-gray-200'
+                      }`}
                     >
                       <div className="flex items-start space-x-3">
                         <input
@@ -985,12 +1026,22 @@ export default function AgentDashboard() {
                               </button>
                             )}
 
-                            {(file.status === 'processing' || file.status === 'completed') && (
+                            {/* Show upload button for processing status (normal upload) */}
+                            {file.status === 'processing' && (
                               <button
                                 onClick={() => setSelectedFile(file)}
                                 className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
                               >
-                                {file.status === 'completed' ? 'Reupload' : 'Upload Completed'}
+                                Upload Completed
+                              </button>
+                            )}
+                            {/* Show reupload button only for completed files (not replacement) */}
+                            {file.status === 'completed' && (
+                              <button
+                                onClick={() => setSelectedFile(file)}
+                                className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
+                              >
+                                Reupload
                               </button>
                             )}
 

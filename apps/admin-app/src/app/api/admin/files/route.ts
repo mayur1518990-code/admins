@@ -136,11 +136,16 @@ export async function GET(request: NextRequest) {
     
     const filesData = filesSnapshot.docs.map(doc => {
       const data = doc.data();
-      if (data.userId) userIds.add(data.userId);
-      if (data.assignedAgentId) agentIds.add(data.assignedAgentId);
+      // Only add valid, non-empty userIds
+      if (data.userId && typeof data.userId === 'string' && data.userId.trim()) {
+        userIds.add(data.userId);
+      }
+      // Only add valid, non-empty agentIds
+      if (data.assignedAgentId && typeof data.assignedAgentId === 'string' && data.assignedAgentId.trim()) {
+        agentIds.add(data.assignedAgentId);
+      }
       return { id: doc.id, ...data } as any;
     });
-
 
     // OPTIMIZED: Batch fetch users and agents with caching
     const userAgentCacheKey = makeKey('users-agents', ['lookup']);
@@ -151,30 +156,64 @@ export async function GET(request: NextRequest) {
     
     if (cachedUserAgentData) {
       // Use cached data and only fetch missing ones
-      // IMPORTANT: Check if cached data has phone field, if not, invalidate cache and refetch all
-      const sampleUser = Array.from(cachedUserAgentData.users.values())[0];
-      const cacheHasPhone = sampleUser && 'phone' in sampleUser;
-      
-      if (!cacheHasPhone && cachedUserAgentData.users.size > 0) {
-        // Cache is old format without phone, invalidate it
-        serverCache.delete(userAgentCacheKey);
-        // Don't use cached data, will fetch all below
-      } else {
       usersMap = new Map(cachedUserAgentData.users);
       agentsMap = new Map(cachedUserAgentData.agents);
-      }
-    }
       
       const missingUserIds = Array.from(userIds).filter(id => !usersMap.has(id));
       const missingAgentIds = Array.from(agentIds).filter(id => !agentsMap.has(id));
       
-    // Fetch missing users/agents or all if cache was invalidated
-    const usersToFetch = usersMap.size === 0 && userIds.size > 0 ? Array.from(userIds) : missingUserIds;
-    const agentsToFetch = agentsMap.size === 0 && agentIds.size > 0 ? Array.from(agentIds) : missingAgentIds;
-    
-    
-    if (usersToFetch.length > 0 || agentsToFetch.length > 0) {
-      // Fetch missing users/agents or all if no cache
+      if (missingUserIds.length > 0 || missingAgentIds.length > 0) {
+        // Fetch missing users in batches (Firestore 'in' query limit is 10)
+        const fetchMissingBatch = async (collection: string, ids: string[]) => {
+          if (ids.length === 0) return [];
+          if (ids.length === 1) {
+            const doc = await adminDb.collection(collection).doc(ids[0]).get();
+            return doc.exists ? [doc] : [];
+          }
+          // Handle batches of 10
+          const batches = [];
+          for (let i = 0; i < ids.length; i += 10) {
+            const batch = ids.slice(i, i + 10);
+            batches.push(
+              adminDb.collection(collection)
+                .where(FieldPath.documentId(), 'in', batch)
+                .get()
+            );
+          }
+          const results = await Promise.all(batches);
+          return results.flatMap(snapshot => snapshot.docs);
+        };
+        
+        const [newUserDocs, newAgentDocs] = await Promise.all([
+          fetchMissingBatch('user', missingUserIds),
+          fetchMissingBatch('agents', missingAgentIds)
+        ]);
+        
+        newUserDocs.forEach((doc: any) => {
+          const data = doc.data();
+          usersMap.set(doc.id, {
+            id: doc.id,
+            name: (data?.name && data.name.trim()) || 'Unknown User',
+            email: (data?.email && data.email.trim()) || 'No email',
+            phone: (data?.phone && data.phone.trim()) || null
+          });
+        });
+        
+        newAgentDocs.forEach((doc: any) => {
+          const data = doc.data();
+          agentsMap.set(doc.id, {
+            id: doc.id,
+            name: data?.name || 'Unknown',
+            email: data?.email || 'Unknown',
+            phone: data?.phone || 'Unknown'
+          });
+        });
+        
+        // Update cache with new data
+        serverCache.set(userAgentCacheKey, { users: usersMap, agents: agentsMap }, 300_000); // 5 min cache
+      }
+    } else {
+      // No cache, fetch all needed
       const fetchBatch = async (collection: string, ids: string[]) => {
         if (ids.length === 0) return [];
         
@@ -197,116 +236,20 @@ export async function GET(request: NextRequest) {
         return results.flatMap(snapshot => snapshot.docs);
       };
 
-      // For users, also check agents and admins collections (user might be in different collection)
-      // IMPORTANT: Search by document ID first, then by userId field if not found
-      const fetchUserFromAllCollections = async (userId: string) => {
-        try {
-          // Try both plural and singular collection names (prioritize 'user' since that's where data actually is)
-          const collectionNames = ['user', 'users', 'agents', 'agent', 'admins', 'admin'];
-          
-          // First try by document ID (most common case)
-          const docByIdPromises = collectionNames.map(collectionName => 
-            adminDb.collection(collectionName).doc(userId).get().catch(() => {
-              return { exists: false, id: userId, collection: collectionName };
-            })
-          );
-          
-          const docsById = await Promise.all(docByIdPromises);
-          
-          // Check which collection has the document
-          for (let i = 0; i < docsById.length; i++) {
-            const doc = docsById[i];
-            if (doc.exists) {
-              return doc;
-            }
-          }
-          
-          // Get references for fallback search
-          const userDocById = docsById[0]; // user collection
-          const agentDocById = docsById[2]; // agents collection
-          const adminDocById = docsById[4]; // admins collection
-          
-          if (userDocById.exists) {
-            return userDocById;
-          }
-          if (agentDocById.exists) {
-            return agentDocById;
-          }
-          if (adminDocById.exists) {
-            return adminDocById;
-          }
-          
-          // If not found by document ID, try searching by userId field
-          let userDocsByField, agentDocsByField, adminDocsByField;
-          try {
-            // Try searching by userId field in all collections (prioritize 'user' collection)
-            const searchQueries = [
-              adminDb.collection('user').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
-              adminDb.collection('users').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
-              adminDb.collection('agents').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] })),
-              adminDb.collection('admins').where('userId', '==', userId).limit(1).get().catch(() => ({ empty: true, docs: [] }))
-            ];
-            
-            const [userDocsByUser, userDocsByUsers, agentDocsByField, adminDocsByField] = await Promise.all(searchQueries);
-            // Prioritize 'user' collection results
-            const userDocsByField = !userDocsByUser.empty ? userDocsByUser : userDocsByUsers;
-            
-            if (!userDocsByField.empty && userDocsByField.docs && userDocsByField.docs.length > 0) {
-              return userDocsByField.docs[0];
-            }
-            if (!agentDocsByField.empty && agentDocsByField.docs && agentDocsByField.docs.length > 0) {
-              return agentDocsByField.docs[0];
-            }
-            if (!adminDocsByField.empty && adminDocsByField.docs && adminDocsByField.docs.length > 0) {
-              return adminDocsByField.docs[0];
-            }
-          } catch (searchError) {
-            // Silently fail and return null
-          }
-          
-          return null;
-        } catch (error) {
-          return null;
-        }
-      };
-
-      // Fetch users - try all collections (users, agents, admins) for each user
-      const userFetchPromises = usersToFetch.map(userId => fetchUserFromAllCollections(userId));
-      const agentFetchPromises = agentsToFetch.map(agentId => 
-        adminDb.collection('agents').doc(agentId).get().catch(() => null)
-      );
-      
-      const [userResults, agentResults] = await Promise.all([
-        Promise.all(userFetchPromises),
-        Promise.all(agentFetchPromises)
+      const [userDocs, agentDocs] = await Promise.all([
+        fetchBatch('user', Array.from(userIds)),
+        fetchBatch('agents', Array.from(agentIds))
       ]);
-      
-      // Filter out null results and convert to doc array format
-      const userDocs = userResults.filter((doc): doc is any => doc !== null && doc.exists);
-      const agentDocs = agentResults.filter((doc): doc is any => doc !== null && doc.exists);
       
       userDocs.forEach((doc: any) => {
         const data = doc.data();
         usersMap.set(doc.id, {
           id: doc.id,
-          name: data?.name || 'Unknown',
-          email: data?.email || 'Unknown',
-          phone: data?.phone || data?.phoneNumber || data?.contactNumber || null
+          name: (data?.name && data.name.trim()) || 'Unknown User',
+          email: (data?.email && data.email.trim()) || 'No email',
+          phone: (data?.phone && data.phone.trim()) || null
         });
       });
-      
-      // Create placeholder user entries if users were not found
-      if (usersToFetch.length > 0 && userDocs.length === 0) {
-        // Create placeholder user entries so the UI doesn't break
-        usersToFetch.forEach(userId => {
-          usersMap.set(userId, {
-            id: userId,
-            name: 'Unknown User',
-            email: 'No email',
-            phone: null
-          });
-        });
-      }
 
       agentDocs.forEach((doc: any) => {
         const data = doc.data();
@@ -324,23 +267,55 @@ export async function GET(request: NextRequest) {
 
     // Map files with user and agent data from lookup maps (O(N) instead of O(N*M))
     let files = filesData.map(data => {
-      const userData = data.userId ? usersMap.get(data.userId) || null : null;
+      // Handle user data - create fallback if user not found
+      let userData = null;
+      if (data.userId) {
+        userData = usersMap.get(data.userId);
+        // If user not found, create a fallback user object with the userId
+        // This handles orphaned files where user was deleted
+        if (!userData) {
+          console.warn(`[Files API] User not found for userId: ${data.userId} (file: ${data.id})`);
+          userData = {
+            id: data.userId,
+            name: 'Unknown User',
+            email: null,
+            phone: 'No phone'
+          };
+        }
+      }
+      
+      // Handle agent data - create fallback if agent not found
+      let agentData = null;
+      if (data.assignedAgentId) {
+        agentData = agentsMap.get(data.assignedAgentId);
+        // If agent not found, create a fallback agent object
+        if (!agentData) {
+          console.warn(`[Files API] Agent not found for agentId: ${data.assignedAgentId} (file: ${data.id})`);
+          agentData = {
+            id: data.assignedAgentId,
+            name: 'Unknown Agent',
+            email: 'No email',
+            phone: null
+          };
+        }
+      }
+      
       return {
-      id: data.id,
-      filename: data.filename || 'Unknown',
-      originalName: data.originalName || 'Unknown',
-      size: data.size || 0,
-      mimeType: data.mimeType || 'Unknown',
-      status: data.status || 'unknown',
-      uploadedAt: data.uploadedAt?.toDate?.() || data.uploadedAt || new Date(),
-      assignedAt: data.assignedAt?.toDate?.() || data.assignedAt || null,
-      respondedAt: data.respondedAt?.toDate?.() || data.respondedAt || null,
-      responseFileURL: data.responseFileURL || null,
-      responseMessage: data.responseMessage || null,
+        id: data.id,
+        filename: data.filename || 'Unknown',
+        originalName: data.originalName || 'Unknown',
+        size: data.size || 0,
+        mimeType: data.mimeType || 'Unknown',
+        status: data.status || 'unknown',
+        uploadedAt: data.uploadedAt?.toDate?.() || data.uploadedAt || new Date(),
+        assignedAt: data.assignedAt?.toDate?.() || data.assignedAt || null,
+        respondedAt: data.respondedAt?.toDate?.() || data.respondedAt || null,
+        responseFileURL: data.responseFileURL || null,
+        responseMessage: data.responseMessage || null,
         user: userData,
-      agent: data.assignedAgentId ? agentsMap.get(data.assignedAgentId) || null : null,
-      paymentId: data.paymentId || null,
-      b2Key: data.b2Key || data.filename || null
+        agent: agentData,
+        paymentId: data.paymentId || null,
+        b2Key: data.b2Key || data.filename || null
       };
     });
 
@@ -363,7 +338,7 @@ export async function GET(request: NextRequest) {
         file.filename.toLowerCase().includes(searchLower) ||
         file.originalName.toLowerCase().includes(searchLower) ||
         file.user?.name?.toLowerCase().includes(searchLower) ||
-        file.user?.email?.toLowerCase().includes(searchLower) ||
+        file.user?.phone?.toLowerCase().includes(searchLower) ||
         file.agent?.name?.toLowerCase().includes(searchLower)
       );
     }

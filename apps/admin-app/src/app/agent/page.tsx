@@ -455,15 +455,15 @@ export default function AgentDashboard() {
         {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Agent Dashboard</h1>
-              <p className="text-gray-600">Manage your assigned files and track progress</p>
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-4 sm:py-6 gap-4">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Agent Dashboard</h1>
+              <p className="text-sm sm:text-base text-gray-600 mt-1">Manage your assigned files and track progress</p>
             </div>
             <div className="flex space-x-3">
               <button
                 onClick={handleLogout}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base w-full sm:w-auto"
               >
                 Logout
               </button>
@@ -475,12 +475,12 @@ export default function AgentDashboard() {
       {updatedFileIds.size > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
-            <p className="font-medium">
+            <p className="text-sm sm:text-base font-medium break-words">
               {updatedFileIds.size === 1
                 ? '1 assigned file was updated by the client. Please review the latest version.'
                 : `${updatedFileIds.size} assigned files were updated by the client. Please review the latest versions.`}
             </p>
-            <p className="text-sm mt-1">
+            <p className="text-xs sm:text-sm mt-1 break-words">
               Download the refreshed file before restarting processing so your response matches the new upload.
             </p>
           </div>
@@ -549,11 +549,11 @@ export default function AgentDashboard() {
 
         {/* Filters */}
         <div className="bg-white rounded-lg shadow mb-6">
-          <div className="p-6">
-            <div className="flex flex-wrap gap-4">
+          <div className="p-4 sm:p-6">
+            <div className="flex flex-wrap gap-2 sm:gap-4">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base font-medium transition-colors ${
                   statusFilter === 'all' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -563,7 +563,7 @@ export default function AgentDashboard() {
               </button>
               <button
                 onClick={() => setStatusFilter('assigned')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base font-medium transition-colors ${
                   statusFilter === 'assigned' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -573,7 +573,7 @@ export default function AgentDashboard() {
               </button>
               <button
                 onClick={() => setStatusFilter('processing')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base font-medium transition-colors ${
                   statusFilter === 'processing' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -583,7 +583,7 @@ export default function AgentDashboard() {
               </button>
               <button
                 onClick={() => setStatusFilter('completed')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base font-medium transition-colors ${
                   statusFilter === 'completed' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -593,7 +593,7 @@ export default function AgentDashboard() {
               </button>
               <button
                 onClick={() => setStatusFilter('replacement')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base font-medium transition-colors ${
                   statusFilter === 'replacement' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -608,19 +608,19 @@ export default function AgentDashboard() {
         {/* Replacement Files Section - Always visible if there are replacement files */}
         {replacementFiles.length > 0 && statusFilter !== 'replacement' && (
           <div className="bg-orange-50 border-2 border-orange-200 rounded-lg shadow mb-6">
-            <div className="px-6 py-4 border-b border-orange-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-orange-900">
+            <div className="px-4 sm:px-6 py-4 border-b border-orange-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-base sm:text-lg font-semibold text-orange-900">
                     Replacement Files ({replacementFiles.length})
                   </h2>
-                  <p className="text-sm text-orange-700 mt-1">
+                  <p className="text-xs sm:text-sm text-orange-700 mt-1">
                     Files that need corrections and re-processing
                   </p>
                 </div>
                 <button
                   onClick={() => setStatusFilter('replacement')}
-                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm w-full sm:w-auto"
                 >
                   View All
                 </button>
@@ -635,12 +635,12 @@ export default function AgentDashboard() {
                 return (
                   <div
                     key={`replacement-${file.id}`}
-                    className="p-6 hover:bg-orange-100 bg-orange-50 border-l-4 border-orange-400"
+                    className="p-4 sm:p-6 hover:bg-orange-100 bg-orange-50 border-l-4 border-orange-400"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-medium text-gray-900">{file.originalName}</h3>
-                        <p className="text-sm text-gray-500 mt-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base sm:text-lg font-medium text-gray-900 break-words">{file.originalName}</h3>
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1 break-words">
                           Size: {formatFileSize(file.size)} • 
                           Assigned: {file.assignedAt ? (() => {
                             const date = new Date(file.assignedAt);
@@ -648,11 +648,11 @@ export default function AgentDashboard() {
                           })() : 'N/A'}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-2 ml-4">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:space-x-2 sm:ml-4">
                         {showDownloadButton && (
                           <button
                             onClick={() => downloadOriginalFile(file.id)}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm w-full sm:w-auto"
                           >
                             Download
                           </button>
@@ -661,7 +661,7 @@ export default function AgentDashboard() {
                           <button
                             onClick={() => updateFileStatus(file.id, 'processing')}
                             disabled={updatingStatus === file.id}
-                            className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-sm disabled:opacity-50"
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors text-sm disabled:opacity-50 w-full sm:w-auto"
                           >
                             Start Processing
                           </button>
@@ -670,7 +670,7 @@ export default function AgentDashboard() {
                         {file.status === 'processing' && (
                           <button
                             onClick={() => setSelectedFile(file)}
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm w-full sm:w-auto"
                           >
                             Upload Completed
                           </button>
@@ -687,8 +687,8 @@ export default function AgentDashboard() {
 
         {/* Files List */}
         <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-2">
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
               <div className="flex items-center space-x-3">
                 <input
                   type="checkbox"
@@ -696,15 +696,15 @@ export default function AgentDashboard() {
                   onChange={toggleSelectAll}
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                   Assigned Files {selectedFiles.length > 0 && `(${selectedFiles.length} selected)`}
                 </h2>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:space-x-2">
                 <button
                   onClick={handleRefresh}
                   disabled={refreshing}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 w-full sm:w-auto"
                 >
                   {refreshing ? (
                     <>
@@ -727,7 +727,7 @@ export default function AgentDashboard() {
                   <button
                     onClick={handleDeleteSelected}
                     disabled={deleting}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 w-full sm:w-auto"
                   >
                     {deleting ? (
                       <>
@@ -919,7 +919,7 @@ export default function AgentDashboard() {
               </div>
 
               {/* Mobile: Vertical Card Layout */}
-              <div className="md:hidden space-y-4 px-4 pb-4">
+              <div className="md:hidden space-y-4 p-4">
                 {filteredFiles.map((file) => {
                   const fileHasUpdate = updatedFileIds.has(file.id);
                   const status = file.status;
@@ -942,72 +942,70 @@ export default function AgentDashboard() {
                           type="checkbox"
                           checked={selectedFiles.includes(file.id)}
                           onChange={() => toggleFileSelection(file.id)}
-                          className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                          className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1 flex-shrink-0"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-2 mb-2">
+                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center space-x-2 mb-2">
-                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                </div>
-                                <h3 className="text-base font-medium text-gray-900 truncate">{file.originalName}</h3>
-                              </div>
+                              <h3 className="text-sm sm:text-base font-medium text-gray-900 break-words">{file.originalName}</h3>
                               {fileHasUpdate && (
-                                <span className="ml-10 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                                <span className="mt-1 inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
                                   File updated by client
                                 </span>
                               )}
-                              <div className="space-y-1 ml-10">
-                                <p className="text-sm text-gray-600">
-                                  <span className="font-medium">Size:</span> {formatFileSize(file.size)}
-                                </p>
-                                <p className="text-sm text-gray-600">
-                                  <span className="font-medium">Assigned:</span> {file.assignedAt ? (() => {
-                                    const date = new Date(file.assignedAt);
-                                    return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
-                                  })() : 'N/A'}
-                                </p>
-                                {file.userEmail && (
-                                  <p className="text-sm text-gray-600">
-                                    <span className="font-medium">User:</span> {file.userEmail}
-                                  </p>
-                                )}
-                                {file.userComment && (
-                                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
-                                    <div className="flex items-start space-x-2">
-                                      <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                                      </svg>
-                                      <div className="flex-1">
-                                        <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
-                                        <p className="text-sm text-blue-900">{file.userComment}</p>
-                                      </div>
-                                    </div>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5 ml-10">
+                            <p className="text-xs sm:text-sm text-gray-600 break-words">
+                              <span className="font-medium">Size:</span> {formatFileSize(file.size)}
+                            </p>
+                            <p className="text-xs sm:text-sm text-gray-600 break-words">
+                              <span className="font-medium">Assigned:</span> {file.assignedAt ? (() => {
+                                const date = new Date(file.assignedAt);
+                                return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                              })() : 'N/A'}
+                            </p>
+                            {file.userEmail && (
+                              <p className="text-xs sm:text-sm text-gray-600 break-words">
+                                <span className="font-medium">User:</span> {file.userEmail}
+                              </p>
+                            )}
+                            {file.userComment && (
+                              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                <div className="flex items-start space-x-2">
+                                  <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                  </svg>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-blue-800 mb-1">User Message:</p>
+                                    <p className="text-xs sm:text-sm text-blue-900 break-words">{file.userComment}</p>
                                   </div>
-                                )}
-                                {fileHasUpdate && (
-                                  <p className="text-xs text-amber-700 font-medium">
-                                    Latest upload detected. Download the new file before responding.
-                                  </p>
-                                )}
-                                <div className="mt-2">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
-                                    {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
-                                  </span>
                                 </div>
                               </div>
+                            )}
+                            {fileHasUpdate && (
+                              <p className="text-xs text-amber-700 font-medium break-words">
+                                Latest upload detected. Download the new file before responding.
+                              </p>
+                            )}
+                            <div className="mt-2">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(file.status)}`}>
+                                {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                              </span>
                             </div>
                           </div>
 
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-4 flex flex-col gap-2">
                             {showDownloadButton && (
                               <button
                                 onClick={() => downloadOriginalFile(file.id)}
                                 disabled={updatingStatus === file.id}
-                                className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+                                className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed w-full"
                               >
                                 Download
                               </button>
@@ -1016,7 +1014,7 @@ export default function AgentDashboard() {
                               <button
                                 onClick={() => updateFileStatus(file.id, 'processing')}
                                 disabled={updatingStatus === file.id}
-                                className="bg-yellow-600 text-white px-3 py-2 rounded-lg hover:bg-yellow-700 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+                                className="bg-yellow-600 text-white px-4 py-2.5 rounded-lg hover:bg-yellow-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed w-full"
                               >
                                 {updatingStatus === file.id
                                   ? 'Processing...'
@@ -1030,7 +1028,7 @@ export default function AgentDashboard() {
                             {file.status === 'processing' && (
                               <button
                                 onClick={() => setSelectedFile(file)}
-                                className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
+                                className="bg-green-600 text-white px-4 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm w-full"
                               >
                                 Upload Completed
                               </button>
@@ -1039,14 +1037,14 @@ export default function AgentDashboard() {
                             {file.status === 'completed' && (
                               <button
                                 onClick={() => setSelectedFile(file)}
-                                className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-xs w-full"
+                                className="bg-green-600 text-white px-4 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm w-full"
                               >
                                 Reupload
                               </button>
                             )}
 
                             {file.status === 'completed' && file.completedFile && (
-                              <div className="text-xs text-gray-500 w-full mt-2">
+                              <div className="text-xs text-gray-500 w-full mt-1">
                                 Completed: {file.completedFile.uploadedAt ? (() => {
                                   const date = new Date(file.completedFile.uploadedAt);
                                   return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();

@@ -771,7 +771,7 @@ export default function AgentDashboard() {
                 {filteredFiles.map((file) => {
                   const fileHasUpdate = updatedFileIds.has(file.id);
                   const status = file.status;
-                  const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
+                  const showDownloadButton = status === 'assigned' || status === 'paid' || status === 'processing' || status === 'completed' || fileHasUpdate;
                   const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
                   const isReplacement = status === 'replacement';
                   return (
@@ -923,7 +923,7 @@ export default function AgentDashboard() {
                 {filteredFiles.map((file) => {
                   const fileHasUpdate = updatedFileIds.has(file.id);
                   const status = file.status;
-                  const showDownloadButton = status === 'assigned' || status === 'paid' || fileHasUpdate;
+                  const showDownloadButton = status === 'assigned' || status === 'paid' || status === 'processing' || status === 'completed' || fileHasUpdate;
                   const showStartProcessing = status === 'assigned' || status === 'paid' || (status === 'completed' && fileHasUpdate);
                   const isReplacement = status === 'replacement';
                   return (

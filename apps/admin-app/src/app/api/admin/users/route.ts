@@ -253,27 +253,12 @@ export async function POST(request: NextRequest) {
     // Trim and validate inputs
     const trimmedEmail = email?.trim();
     const trimmedName = name?.trim();
+    const trimmedPhone = phone?.trim();
 
-    if (!trimmedEmail || !trimmedName || !password) {
+    // Validate required fields based on role
+    if (!trimmedName) {
       return applyDevCors(NextResponse.json(
-        { success: false, error: "Email, name, and password are required", message: "Email, name, and password are required" },
-        { status: 400 }
-      ));
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
-      return applyDevCors(NextResponse.json(
-        { success: false, error: "Please enter a valid email address", message: "Please enter a valid email address" },
-        { status: 400 }
-      ));
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      return applyDevCors(NextResponse.json(
-        { success: false, error: "Password must be at least 6 characters long", message: "Password must be at least 6 characters long" },
+        { success: false, error: "Name is required", message: "Name is required" },
         { status: 400 }
       ));
     }
@@ -285,45 +270,113 @@ export async function POST(request: NextRequest) {
       ));
     }
 
-    // OPTIMIZED: Removed redundant email check - Firebase Auth will throw error if exists
-    // This saves ~1.5 seconds per request!
-    
-    // Create user in Firebase Auth
-    const userRecord = await withRetry(() => adminAuth.createUser({
-      email: trimmedEmail,
-      password,
-      displayName: trimmedName
-    }));
+    // For regular users, only name and phone are required
+    // For agents and admins, email and password are required
+    if (role === 'user') {
+      if (!trimmedPhone) {
+        return applyDevCors(NextResponse.json(
+          { success: false, error: "Phone number is required for users", message: "Phone number is required for users" },
+          { status: 400 }
+        ));
+      }
+    } else {
+      // Agents and admins require email and password
+      if (!trimmedEmail || !password) {
+        return applyDevCors(NextResponse.json(
+          { success: false, error: "Email and password are required for agents and admins", message: "Email and password are required for agents and admins" },
+          { status: 400 }
+        ));
+      }
+
+      // Validate email format for agents/admins
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        return applyDevCors(NextResponse.json(
+          { success: false, error: "Please enter a valid email address", message: "Please enter a valid email address" },
+          { status: 400 }
+        ));
+      }
+
+      // Validate password length for agents/admins
+      if (password.length < 6) {
+        return applyDevCors(NextResponse.json(
+          { success: false, error: "Password must be at least 6 characters long", message: "Password must be at least 6 characters long" },
+          { status: 400 }
+        ));
+      }
+    }
+
+    let userRecord = null;
+    let userId = '';
+
+    // For regular users, create directly in Firestore without Firebase Auth
+    if (role === 'user') {
+      // Check if user already exists (by name and phone)
+      const existingUsersSnapshot = await adminDb.collection('user')
+        .where('name', '==', trimmedName)
+        .where('phone', '==', trimmedPhone)
+        .limit(1)
+        .get();
+
+      if (!existingUsersSnapshot.empty) {
+        return applyDevCors(NextResponse.json(
+          { success: false, error: "User with this name and phone number already exists", message: "User with this name and phone number already exists" },
+          { status: 409 }
+        ));
+      }
+
+      // Generate a unique ID for the user
+      const userRef = adminDb.collection('user').doc();
+      userId = userRef.id;
+    } else {
+      // For agents and admins, create in Firebase Auth
+      userRecord = await withRetry(() => adminAuth.createUser({
+        email: trimmedEmail,
+        password,
+        displayName: trimmedName
+      }));
+      userId = userRecord.uid;
+    }
 
     // Prepare user document
-    const userData = {
-      email: trimmedEmail,
+    const userData: any = {
       name: trimmedName,
-      password,
       role,
-      phone: phone?.trim() || null,
+      phone: trimmedPhone || null,
       isActive: true,
       createdAt: new Date(),
       createdBy: admin.adminId
     };
 
+    // Add email and password only for agents/admins
+    if (role !== 'user') {
+      userData.email = trimmedEmail;
+      userData.password = password;
+    } else {
+      userData.email = ''; // Keep for backward compatibility
+    }
+
     // Determine collection based on role
-    let collectionName = 'users'; // default
+    let collectionName = 'user'; // For regular users, use 'user' collection
     if (role === 'agent') collectionName = 'agents';
     if (role === 'admin') collectionName = 'admins';
 
     // OPTIMIZED: Run Firestore writes in parallel
     await Promise.all([
-      adminDb.collection(collectionName).doc(userRecord.uid).set(userData),
+      adminDb.collection(collectionName).doc(userId).set({
+        ...userData,
+        userId: userId,
+      }),
       adminDb.collection('logs').add({
         actionType: 'user_created',
         actorId: admin.adminId,
         actorType: 'admin',
-        targetUserId: userRecord.uid,
+        targetUserId: userId,
         details: {
-          email: trimmedEmail,
           name: trimmedName,
-          role
+          role,
+          phone: trimmedPhone,
+          email: role !== 'user' ? trimmedEmail : undefined,
         },
         timestamp: new Date()
       })
@@ -338,9 +391,10 @@ export async function POST(request: NextRequest) {
       message: "User created successfully",
       data: {
         user: {
-          id: userRecord.uid,
-          email: trimmedEmail,
+          id: userId,
           name: trimmedName,
+          phone: trimmedPhone,
+          email: role !== 'user' ? trimmedEmail : '',
           role,
           isActive: true,
           createdAt: userData.createdAt
@@ -359,6 +413,14 @@ export async function POST(request: NextRequest) {
     if (error.code === 'auth/email-already-exists' || error.code === 'adminAuth/email-already-exists') {
       return applyDevCors(NextResponse.json(
         { success: false, error: "User with this email already exists", message: "User with this email already exists" },
+        { status: 409 }
+      ));
+    }
+
+    // Handle Firestore errors for duplicate users
+    if (error.message?.includes('already exists') || error.message?.includes('duplicate')) {
+      return applyDevCors(NextResponse.json(
+        { success: false, error: "User already exists", message: "User already exists" },
         { status: 409 }
       ));
     }

@@ -101,7 +101,7 @@ const UserRow = memo(({
               {user.name}
             </div>
             <div className="text-sm text-gray-500">
-              {user.email}
+              {user.email || user.phone || 'No contact info'}
             </div>
           </div>
         </div>
@@ -205,7 +205,7 @@ export default function UsersPage() {
     email: "",
     password: "",
     phone: "",
-    role: "user"
+    role: "agent"
   });
 
   useEffect(() => {
@@ -361,6 +361,12 @@ export default function UsersPage() {
       return;
     }
     
+    // Validate role is agent or admin only
+    if (!['agent', 'admin'].includes(trimmedData.role)) {
+      setError('Role must be either Agent or Admin');
+      return;
+    }
+    
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedData.email)) {
@@ -390,7 +396,7 @@ export default function UsersPage() {
       }
       
       setShowAddModal(false);
-      setFormData({ name: "", email: "", password: "", phone: "", role: "user" });
+      setFormData({ name: "", email: "", password: "", phone: "", role: "agent" });
       setSuccess('User created successfully!');
       setTimeout(() => setSuccess(''), 3000);
       deleteCached(getCacheKey(['admin-users']));
@@ -736,7 +742,7 @@ export default function UsersPage() {
                       <h3 className="text-base font-medium text-gray-900">
                         {user.name}
                       </h3>
-                      <p className="text-sm text-gray-500">{user.email}</p>
+                      <p className="text-sm text-gray-500">{user.email || user.phone || 'No contact info'}</p>
                     </div>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${ROLE_COLORS[user.role] || ROLE_COLORS.default}`}>
                       {user.role}
@@ -860,7 +866,7 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
+                    Email <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="email"
@@ -872,7 +878,7 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password
+                    Password <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="password"
@@ -886,14 +892,13 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role
+                    Role <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="user">User</option>
                     <option value="agent">Agent</option>
                     <option value="admin">Admin</option>
                   </select>
@@ -946,8 +951,14 @@ export default function UsersPage() {
               const trimmedEmail = formData.email.trim();
               const trimmedPhone = formData.phone.trim();
               
-              if (!trimmedName || !trimmedEmail) {
-                setError('Name and email are required');
+              if (!trimmedName) {
+                setError('Name is required');
+                return;
+              }
+              
+              // For agents/admins, email is required
+              if (!trimmedEmail) {
+                setError('Email is required for agents and admins');
                 return;
               }
               
@@ -965,7 +976,7 @@ export default function UsersPage() {
                 phone: trimmedPhone
               });
               setEditingUser(null);
-              setFormData({ name: "", email: "", password: "", phone: "", role: "user" });
+              setFormData({ name: "", email: "", password: "", phone: "", role: "agent" });
             }}>
               <div className="space-y-4">
                 <div>
@@ -982,7 +993,7 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
+                    Email <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="email"
@@ -994,14 +1005,13 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role
+                    Role <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="user">User</option>
                     <option value="agent">Agent</option>
                     <option value="admin">Admin</option>
                   </select>
@@ -1023,7 +1033,7 @@ export default function UsersPage() {
                   type="button"
                   onClick={() => {
                     setEditingUser(null);
-                    setFormData({ name: "", email: "", password: "", phone: "", role: "user" });
+                    setFormData({ name: "", email: "", password: "", phone: "", role: "agent" });
                   }}
                   className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
                 >
@@ -1073,7 +1083,8 @@ export default function UsersPage() {
                   <h4 className="text-sm font-medium text-gray-900 mb-2">User Details:</h4>
                   <div className="text-sm text-gray-600 space-y-1">
                     <p><strong>Name:</strong> {resettingUser.name}</p>
-                    <p><strong>Email:</strong> {resettingUser.email}</p>
+                    <p><strong>Email:</strong> {resettingUser.email || 'No email'}</p>
+                    <p><strong>Phone:</strong> {resettingUser.phone || 'No phone'}</p>
                     <p><strong>Role:</strong> {resettingUser.role}</p>
                   </div>
                 </div>

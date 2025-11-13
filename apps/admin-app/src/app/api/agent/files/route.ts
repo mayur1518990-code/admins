@@ -108,36 +108,53 @@ export async function GET(request: NextRequest) {
       }))
     };
 
-    // OPTIMIZED: Batch fetch all user data (fixes N+1 query problem)
+    // OPTIMIZED: Batch fetch all user data using getAll() for better performance
+    // Firestore getAll() is faster than individual gets when fetching multiple documents
     const userIds = [...new Set(filesSnapshot.docs.map(doc => doc.data().userId).filter(Boolean))];
     const completedFileIds = filesSnapshot.docs
       .map(doc => doc.data().completedFileId)
       .filter(Boolean);
 
-    // Batch fetch users
+    // Batch fetch users using getAll() - more efficient for multiple documents
     const userMap = new Map<string, any>();
     if (userIds.length > 0) {
-      const userPromises = userIds.map(userId => 
-        adminDb.collection('users').doc(userId).get().catch(() => null)
-      );
-      const userDocs = await Promise.all(userPromises);
-      userDocs.forEach((doc, idx) => {
+      // Firestore getAll() supports up to 10 documents per call, so we need to chunk
+      const userChunks: string[][] = [];
+      for (let i = 0; i < userIds.length; i += 10) {
+        userChunks.push(userIds.slice(i, i + 10));
+      }
+      
+      const userPromises = userChunks.map(chunk => {
+        const refs = chunk.map(id => adminDb.collection('users').doc(id));
+        return adminDb.getAll(...refs).catch(() => []);
+      });
+      
+      const userDocArrays = await Promise.all(userPromises);
+      userDocArrays.flat().forEach(doc => {
         if (doc && doc.exists) {
-          userMap.set(userIds[idx], doc.data());
+          userMap.set(doc.id, doc.data());
         }
       });
     }
 
-    // Batch fetch completed files
+    // Batch fetch completed files using getAll() - more efficient
     const completedFileMap = new Map<string, any>();
     if (completedFileIds.length > 0) {
-      const completedPromises = completedFileIds.map(fileId => 
-        adminDb.collection('completedFiles').doc(fileId).get().catch(() => null)
-      );
-      const completedDocs = await Promise.all(completedPromises);
-      completedDocs.forEach((doc, idx) => {
+      // Firestore getAll() supports up to 10 documents per call
+      const fileChunks: string[][] = [];
+      for (let i = 0; i < completedFileIds.length; i += 10) {
+        fileChunks.push(completedFileIds.slice(i, i + 10));
+      }
+      
+      const completedPromises = fileChunks.map(chunk => {
+        const refs = chunk.map(id => adminDb.collection('completedFiles').doc(id));
+        return adminDb.getAll(...refs).catch(() => []);
+      });
+      
+      const completedDocArrays = await Promise.all(completedPromises);
+      completedDocArrays.flat().forEach(doc => {
         if (doc && doc.exists) {
-          completedFileMap.set(completedFileIds[idx], doc.data());
+          completedFileMap.set(doc.id, doc.data());
         }
       });
     }

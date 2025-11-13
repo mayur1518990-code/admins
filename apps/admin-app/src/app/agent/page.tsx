@@ -3,7 +3,7 @@
 // Force dynamic rendering for authenticated pages
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { getCached, setCached, getCacheKey, isFresh, deleteCached } from '@/lib/cache';
 
 interface AssignedFile {
@@ -111,17 +111,31 @@ export default function AgentDashboard() {
     });
   }, []);
 
-  // OPTIMIZED: Add client-side caching with useCallback, removed console logs
-  const fetchAssignedFiles = useCallback(async (forceRefresh = false) => {
+  // OPTIMIZED: Show cached data immediately, then fetch fresh in background
+  const fetchAssignedFiles = useCallback(async (forceRefresh = false, showCachedFirst = false) => {
+    const cacheKey = getCacheKey(['agent-files']);
+    
+    // If showing cached first, load from cache immediately
+    if (showCachedFirst) {
+      const cached = getCached<{ files: AssignedFile[] }>(cacheKey);
+      if (cached && cached.data?.files) {
+        const cachedFiles = cached.data.files || [];
+        trackFileUpdates(cachedFiles);
+        setFiles(cachedFiles);
+        calculateStats(cachedFiles);
+        setLoading(false);
+        // Continue to fetch fresh data in background
+      }
+    }
+    
     try {
-      setLoading(true);
+      if (!showCachedFirst) {
+        setLoading(true);
+      }
       
       // Check cache first (unless forcing refresh)
-      const cacheKey = getCacheKey(['agent-files']);
-      if (!forceRefresh) {
+      if (!forceRefresh && !showCachedFirst) {
         const cached = getCached<{ files: AssignedFile[] }>(cacheKey);
-        // Reduced cache time for replacement files to ensure fresh data
-        // Check if there are replacement files - if so, use shorter cache (30 seconds)
         const hasReplacementFiles = cached?.data?.files?.some(f => f.status === 'replacement');
         const cacheTime = hasReplacementFiles ? 30_000 : 180_000; // 30s for replacement, 3min for normal
         if (isFresh(cached, cacheTime)) {
@@ -132,7 +146,7 @@ export default function AgentDashboard() {
           setLoading(false);
           return;
         }
-      } else {
+      } else if (forceRefresh) {
         // Force refresh: clear cache before fetching
         deleteCached(cacheKey);
       }
@@ -152,23 +166,23 @@ export default function AgentDashboard() {
         setCached(cacheKey, { files: data.files });
       }
     } catch {
-      // Silent error - show empty state
+      // Silent error - keep cached data if available
     } finally {
       setLoading(false);
     }
-  }, [trackFileUpdates]); // Stable callback with change tracking
+  }, [trackFileUpdates]);
 
-  // Load files on mount - always fetch fresh data on initial load to ensure replacement files are visible
+  // OPTIMIZED: Load cached data immediately, then fetch fresh in background
   useEffect(() => {
-    // On first load after login, always fetch fresh data to ensure replacement files are immediately visible
     if (isInitialLoadRef.current) {
-      isInitialLoadRef.current = false; // Mark as no longer initial load
-      // Clear cache and force fresh fetch on initial mount (after login)
-      const cacheKey = getCacheKey(['agent-files']);
-      deleteCached(cacheKey);
-      fetchAssignedFiles(true); // Force refresh on initial load
+      isInitialLoadRef.current = false;
+      // Show cached data immediately for instant load, then fetch fresh in background
+      fetchAssignedFiles(false, true); // showCachedFirst = true
+      // Also fetch fresh data in background
+      fetchAssignedFiles(false, false).catch(() => {
+        // Silent error - cached data is already shown
+      });
     } else {
-      // Subsequent loads can use cache
       fetchAssignedFiles(false);
     }
   }, [fetchAssignedFiles]);
@@ -184,6 +198,12 @@ export default function AgentDashboard() {
     await fetchAssignedFiles(true); // Force refresh
     setRefreshing(false);
   };
+
+  const openOcrDemo = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/ocr-demo/ocr-engine/example.html';
+    }
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -205,7 +225,8 @@ export default function AgentDashboard() {
     }
   };
 
-  const calculateStats = (files: AssignedFile[]) => {
+  // OPTIMIZED: Memoize stats calculation
+  const calculateStats = useCallback((files: AssignedFile[]) => {
     const stats = {
       totalAssigned: files.length,
       processing: files.filter(f => f.status === 'processing').length,
@@ -213,7 +234,7 @@ export default function AgentDashboard() {
       pending: files.filter(f => f.status === 'assigned' || f.status === 'paid').length
     };
     setStats(stats);
-  };
+  }, []);
 
   const updateFileStatus = async (fileId: string, status: 'processing' | 'completed') => {
     setUpdatingStatus(fileId);
@@ -348,16 +369,20 @@ export default function AgentDashboard() {
   };
 
 
-  // Separate replacement files from normal files
-  const normalFiles = files.filter(file => file.status !== 'replacement');
-  const replacementFiles = files.filter(file => file.status === 'replacement');
-  
-  const filteredFiles = files.filter(file => {
-    if (statusFilter === 'all') return file.status !== 'replacement'; // Exclude replacement from "all"
-    if (statusFilter === 'assigned') return file.status === 'assigned' || file.status === 'paid';
-    if (statusFilter === 'replacement') return file.status === 'replacement';
-    return file.status === statusFilter;
-  });
+  // OPTIMIZED: Memoize filtered files to prevent recalculation on every render
+  const { normalFiles, replacementFiles, filteredFiles } = useMemo(() => {
+    const normal = files.filter(file => file.status !== 'replacement');
+    const replacement = files.filter(file => file.status === 'replacement');
+    
+    const filtered = files.filter(file => {
+      if (statusFilter === 'all') return file.status !== 'replacement';
+      if (statusFilter === 'assigned') return file.status === 'assigned' || file.status === 'paid';
+      if (statusFilter === 'replacement') return file.status === 'replacement';
+      return file.status === statusFilter;
+    });
+    
+    return { normalFiles: normal, replacementFiles: replacement, filteredFiles: filtered };
+  }, [files, statusFilter]);
 
   // Checkbox handlers
   const toggleFileSelection = (fileId: string) => {
@@ -419,14 +444,14 @@ export default function AgentDashboard() {
     }
   };
 
-  // OPTIMIZED: Pure function for file size formatting (no re-creation on every render)
-  const formatFileSize = (bytes: number) => {
+  // OPTIMIZED: Pure function for file size formatting (memoized with useMemo)
+  const formatFileSize = useCallback((bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  }, []);
 
   // OPTIMIZED: Status color map (constant lookup instead of function calls)
   const STATUS_COLORS: Record<string, string> = {
@@ -460,7 +485,13 @@ export default function AgentDashboard() {
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Agent Dashboard</h1>
               <p className="text-sm sm:text-base text-gray-600 mt-1">Manage your assigned files and track progress</p>
             </div>
-            <div className="flex space-x-3">
+            <div className="flex flex-col sm:flex-row gap-2 sm:space-x-3">
+              <button
+                onClick={openOcrDemo}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base w-full sm:w-auto"
+              >
+                Open OCR Workspace
+              </button>
               <button
                 onClick={handleLogout}
                 className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base w-full sm:w-auto"

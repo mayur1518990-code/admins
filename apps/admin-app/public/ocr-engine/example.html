@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+    #imageInput, #select-area {
+      margin: 20px 0;
+      padding: 10px;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background: #f9f9f9;
+      min-height: 100px;
+    }
+    #progress {
+      margin: 10px 0;
+      color: #666;
+    }
+    button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    #preview img {
+      max-width: 100%;
+      border: 1px solid #ddd;
+    }
+  </style>
+  <link rel="stylesheet" href="./ui/inject.css">
+</head>
+<body>
+  <h1>OCR Demo</h1>
+  <p>
+    Upload an image or click “Select Area” to capture part of this page. The floating panel will
+    appear with the same language and accuracy options you saw in the extension.
+  </p>
+
+  <input type="file" id="imageInput" accept="image/*,application/pdf,.pdf">
+  <button id="processBtn" disabled>Process Image</button>
+  <button id="select-area">Select Area</button>
+
+  <div id="preview"></div>
+  <div id="progress"></div>
+  <div id="result"></div>
+
+  <iframe id="ocr-frame"
+          src="./ui/sandbox.html"
+          style="position:fixed;bottom:10px;right:10px;width:500px;height:320px;border:none;z-index:2147483647;display:none;">
+  </iframe>
+
+  <script src="storage.js"></script>
+  <script src="ocr.js"></script>
+  <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script>
+    const ocr = new OCRLibrary({
+      enginePath: './engine',
+      defaultLang: 'eng',
+      defaultAccuracy: '4.0.0'
+    });
+
+    let currentImageData = null;
+
+    const loadPdfJs = (() => {
+      let loader = null;
+      return () => {
+        if (loader) {
+          return loader;
+        }
+        loader = new Promise((resolve, reject) => {
+          if (window.pdfjsLib) {
+            resolve(window.pdfjsLib);
+            return;
+          }
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js';
+          script.onload = () => {
+            if (window.pdfjsLib) {
+              window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.worker.min.js';
+              resolve(window.pdfjsLib);
+            } else {
+              reject(new Error('pdf.js failed to load'));
+            }
+          };
+          script.onerror = () => reject(new Error('Unable to load pdf.js'));
+          document.head.appendChild(script);
+        });
+        return loader;
+      };
+    })();
+
+    async function renderPdfToImage(file) {
+      const pdfjsLib = await loadPdfJs();
+      const data = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data}).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({scale: 1.5});
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      const outputScale = window.devicePixelRatio || 1;
+      canvas.width = viewport.width * outputScale;
+      canvas.height = viewport.height * outputScale;
+      canvas.style.width = viewport.width + 'px';
+      canvas.style.height = viewport.height + 'px';
+      await page.render({
+        canvasContext: context,
+        viewport,
+        transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
+      }).promise;
+      return canvas.toDataURL('image/png');
+    }
+
+    document.getElementById('imageInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        return;
+      }
+      const progressDiv = document.getElementById('progress');
+      progressDiv.textContent = '';
+      try {
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          progressDiv.textContent = 'Rendering PDF…';
+          currentImageData = await renderPdfToImage(file);
+        } else {
+          const reader = new FileReader();
+          currentImageData = await new Promise((resolve, reject) => {
+            reader.onload = event => resolve(event.target.result);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+          });
+        }
+        const img = document.createElement('img');
+        img.src = currentImageData;
+        img.alt = 'Selected Preview';
+        document.getElementById('preview').innerHTML = '';
+        document.getElementById('preview').appendChild(img);
+        document.getElementById('processBtn').disabled = false;
+        document.getElementById('result').innerHTML = '';
+        progressDiv.textContent = '';
+      } catch (err) {
+        console.error('Failed to prepare file for OCR:', err);
+        document.getElementById('preview').innerHTML = '';
+        document.getElementById('processBtn').disabled = true;
+        document.getElementById('result').innerHTML = `<span style="color:red;">${err.message}</span>`;
+        progressDiv.textContent = 'Error preparing file';
+      }
+    });
+
+    document.getElementById('processBtn').addEventListener('click', async () => {
+      if (!currentImageData) {
+        return;
+      }
+      const progressDiv = document.getElementById('progress');
+      const resultDiv = document.getElementById('result');
+      const btn = document.getElementById('processBtn');
+
+      btn.disabled = true;
+      progressDiv.textContent = 'Processing…';
+      resultDiv.innerHTML = '';
+
+      try {
+        const result = await ocr.recognize(currentImageData, {
+          lang: 'eng',
+          accuracy: '4.0.0',
+          onProgress: (report) => {
+            const percent = report.progress ? Math.round(report.progress * 100) : 0;
+            progressDiv.textContent = `${report.status || 'Processing'}… ${percent}%`;
+          }
+        });
+        resultDiv.innerHTML = result.hocr || result.text;
+        progressDiv.textContent = `Done! Confidence: ${Math.round(result.confidence)}%`;
+      }
+      catch (error) {
+        resultDiv.innerHTML = `<span style="color:red;">${error.message}</span>`;
+        progressDiv.textContent = 'Error occurred';
+        console.error('OCR Error:', error);
+      }
+      finally {
+        btn.disabled = false;
+      }
+    });
+
+    const selectBtn = document.getElementById('select-area');
+    const ocrFrame = document.getElementById('ocr-frame');
+    let selectionScriptLoaded = false;
+
+    function loadSelectionScript() {
+      return new Promise(resolve => {
+        const script = document.createElement('script');
+        script.src = `./ui/inject.js?_=${Date.now()}`;
+        script.onload = resolve;
+        document.documentElement.append(script);
+      });
+    }
+
+    async function ensureSelectionScript() {
+      if (!selectionScriptLoaded) {
+        await loadSelectionScript();
+        selectionScriptLoaded = true;
+      }
+      else if (window.capture && window.guide && window.monitor) {
+        window.guide.install();
+        window.capture.install();
+        window.monitor.install();
+      }
+    }
+
+    selectBtn.addEventListener('click', async () => {
+      ocrFrame.style.display = 'block';
+      await ensureSelectionScript();
+    });
+
+    document.addEventListener('ocr-aborted', () => {
+      console.log('Selection aborted');
+    });
+
+    document.addEventListener('ocr-captured', async (event) => {
+      const {left, top, width, height, devicePixelRatio} = event.detail;
+      const dpr = devicePixelRatio || window.devicePixelRatio || 1;
+      const clampedWidth = Math.max(1, Math.round(width));
+      const clampedHeight = Math.max(1, Math.round(height));
+      console.log('[OCR] Captured box', {left, top, width: clampedWidth, height: clampedHeight, dpr});
+      if (!clampedWidth || !clampedHeight) {
+        alert('Please drag an area with a non-zero width and height.');
+        return;
+      }
+      try {
+        const canvas = await html2canvas(document.body, {
+          x: left + window.scrollX,
+          y: top + window.scrollY,
+          width: clampedWidth,
+          height: clampedHeight,
+          scale: dpr,
+          backgroundColor: null,
+          useCORS: true,
+          allowTaint: true
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        document.getElementById('preview').innerHTML = '';
+        const capturedImg = document.createElement('img');
+        capturedImg.src = dataUrl;
+        capturedImg.alt = 'Captured Region Preview';
+        document.getElementById('preview').appendChild(capturedImg);
+        ocrFrame.contentWindow.postMessage({
+          method: 'proceed',
+          href: dataUrl,
+          request: {
+            left: 0,
+            top: 0,
+            width: clampedWidth,
+            height: clampedHeight,
+            devicePixelRatio: dpr
+          }
+        }, '*');
+      }
+      catch (error) {
+        console.error('Failed to capture area for OCR:', error);
+      }
+    });
+
+    window.addEventListener('message', event => {
+      const {method} = event.data || {};
+      if (method === 'remove-iframe') {
+        ocrFrame.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>

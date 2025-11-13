@@ -1,4 +1,5 @@
 import { adminDb } from './firebase-admin';
+import { serverCache, makeKey } from './server-cache';
 
 /**
  * Normalize agent ID to handle different ID formats
@@ -40,13 +41,20 @@ export async function normalizeAgentId(agentId: string): Promise<string> {
 
 /**
  * Get all possible agent IDs for a given agent
- * This helps debug assignment issues
+ * OPTIMIZED: Cache agent data to avoid repeated queries
  */
 export async function getAllAgentIds(agentId: string): Promise<string[]> {
   try {
+    // Check cache first (agent data rarely changes)
+    const cacheKey = makeKey('agent-ids', [agentId]);
+    const cached = serverCache.get<string[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const agentIds: string[] = [agentId];
     
-    // Get agent document
+    // Get agent document (single query instead of multiple)
     const agentDoc = await adminDb.collection('agents').doc(agentId).get();
     if (agentDoc.exists) {
       const agentData = agentDoc.data();
@@ -62,7 +70,12 @@ export async function getAllAgentIds(agentId: string): Promise<string[]> {
       }
     }
 
-    return [...new Set(agentIds)]; // Remove duplicates
+    const uniqueIds = [...new Set(agentIds)]; // Remove duplicates
+    
+    // Cache for 10 minutes (agent data rarely changes)
+    serverCache.set(cacheKey, uniqueIds, 10 * 60 * 1000);
+    
+    return uniqueIds;
   } catch (error) {
     console.error('Error getting all agent IDs:', error);
     return [agentId];
@@ -71,76 +84,97 @@ export async function getAllAgentIds(agentId: string): Promise<string[]> {
 
 /**
  * Find files assigned to an agent using multiple possible ID formats
- * OPTIMIZED: Parallel queries instead of sequential loop
+ * OPTIMIZED: Use Firestore 'in' operator to reduce queries from 6-10 to 2 queries max
+ * Firestore 'in' operator supports up to 10 values, which is perfect for our use case
  */
 export async function findAgentFiles(agentId: string) {
-  const startTime = Date.now();
-  
   try {
-    const idsStart = Date.now();
     const allAgentIds = await getAllAgentIds(agentId);
-    console.log(`[AGENT-UTILS] Searching for files with agent IDs:`, allAgentIds);
     
-    // OPTIMIZATION: Parallel queries instead of sequential loop
-    // Before: 6-10 sequential queries (2 per ID, 3-5 IDs)
-    // After: 2 parallel batches (one for each field type)
-    const queryStart = Date.now();
+    // OPTIMIZATION: Use 'in' operator instead of multiple parallel queries
+    // This reduces from 6-10 queries to just 2 queries (one per field)
+    // Firestore 'in' operator supports up to 10 values, perfect for our case
     
-    // Query all IDs in parallel for assignedAgentId field
-    const assignedAgentPromises = allAgentIds.map(id =>
-      adminDb.collection('files')
-        .where('assignedAgentId', '==', id)
-        .get()
-        .catch(() => ({ docs: [] }))
-    );
-    
-    // Query all IDs in parallel for agentId field
-    const agentIdPromises = allAgentIds.map(id =>
-      adminDb.collection('files')
-        .where('agentId', '==', id)
-        .get()
-        .catch(() => ({ docs: [] }))
-    );
-    
-    // Execute all queries in parallel
-    const [assignedResults, agentIdResults] = await Promise.all([
-      Promise.all(assignedAgentPromises),
-      Promise.all(agentIdPromises)
-    ]);
-    
-    // Collect all files
-    const mappingStart = Date.now();
     const allFiles: any[] = [];
     
-    assignedResults.forEach((snapshot, index) => {
-      snapshot.docs.forEach(doc => {
+    // If we have <= 10 agent IDs, use 'in' operator (single query per field)
+    if (allAgentIds.length <= 10) {
+      const [assignedSnapshot, agentIdSnapshot] = await Promise.all([
+        adminDb.collection('files')
+          .where('assignedAgentId', 'in', allAgentIds)
+          .get()
+          .catch(() => ({ docs: [] })),
+        adminDb.collection('files')
+          .where('agentId', 'in', allAgentIds)
+          .get()
+          .catch(() => ({ docs: [] }))
+      ]);
+      
+      // Collect files from assignedAgentId query
+      assignedSnapshot.docs.forEach(doc => {
         allFiles.push({
           id: doc.id,
-          ...doc.data(),
-          foundBy: 'assignedAgentId',
-          foundWithId: allAgentIds[index]
+          ...doc.data()
         });
       });
-    });
-    
-    agentIdResults.forEach((snapshot, index) => {
-      snapshot.docs.forEach(doc => {
+      
+      // Collect files from agentId query
+      agentIdSnapshot.docs.forEach(doc => {
         allFiles.push({
           id: doc.id,
-          ...doc.data(),
-          foundBy: 'agentId',
-          foundWithId: allAgentIds[index]
+          ...doc.data()
         });
       });
-    });
+    } else {
+      // Fallback: If somehow we have > 10 IDs, split into chunks
+      // This should rarely happen, but handle it gracefully
+      const chunks: string[][] = [];
+      for (let i = 0; i < allAgentIds.length; i += 10) {
+        chunks.push(allAgentIds.slice(i, i + 10));
+      }
+      
+      const assignedPromises = chunks.map(chunk =>
+        adminDb.collection('files')
+          .where('assignedAgentId', 'in', chunk)
+          .get()
+          .catch(() => ({ docs: [] }))
+      );
+      
+      const agentIdPromises = chunks.map(chunk =>
+        adminDb.collection('files')
+          .where('agentId', 'in', chunk)
+          .get()
+          .catch(() => ({ docs: [] }))
+      );
+      
+      const [assignedResults, agentIdResults] = await Promise.all([
+        Promise.all(assignedPromises),
+        Promise.all(agentIdPromises)
+      ]);
+      
+      assignedResults.forEach(snapshot => {
+        snapshot.docs.forEach(doc => {
+          allFiles.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+      });
+      
+      agentIdResults.forEach(snapshot => {
+        snapshot.docs.forEach(doc => {
+          allFiles.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+      });
+    }
     
     // Remove duplicates based on file ID
     const uniqueFiles = allFiles.filter((file, index, self) => 
       index === self.findIndex(f => f.id === file.id)
     );
-    
-    
-    console.log(`[AGENT-UTILS] Found ${uniqueFiles.length} unique files for agent ${agentId}`);
     
     return uniqueFiles;
   } catch (error) {

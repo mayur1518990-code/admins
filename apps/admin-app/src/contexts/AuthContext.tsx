@@ -49,8 +49,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Read tokens from cookies
     const admin = getCookie('admin-token');
     const agent = getCookie('agent-token');
+    const customToken = getCookie('admin-custom-token');
     setAdminToken(admin);
     setAgentToken(agent);
+
+    if (agent && !admin && !customToken) {
+      console.log('[Auth Provider] Agent token detected, skipping Firebase auth flow');
+      setLoading(false);
+      return;
+    }
 
     // If no Firebase auth available, just check cookies
     if (!auth) {
@@ -62,7 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Firebase authentication for real-time Firestore
     const signIn = async () => {
       try {
-        const customToken = getCookie('admin-custom-token');
         if (!customToken) {
           console.log('[Auth Provider] No custom token found');
           setLoading(false);
@@ -95,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[Auth Provider] Firebase user authenticated:', currentUser.uid);
         setUser(currentUser);
         setLoading(false);
-      } else if (getCookie('admin-custom-token')) {
+      } else if (customToken) {
         console.log('[Auth Provider] No Firebase user, attempting sign-in');
         signIn();
       } else {

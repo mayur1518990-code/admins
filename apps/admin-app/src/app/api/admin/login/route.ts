@@ -3,25 +3,25 @@ import { adminDb, adminAuth } from "@/lib/firebase-admin";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    const { name, password } = await request.json();
 
-    if (!email || !password) {
+    if (!name || !password) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Email and password are required' 
+        error: 'Name and password are required' 
       }, { status: 400 });
     }
 
-    // Search for admin in admins collection by email
+    // Search for admin in admins collection by name
     const adminsSnapshot = await adminDb.collection('admins')
-      .where('email', '==', email)
+      .where('name', '==', name)
       .limit(1)
       .get();
 
     if (adminsSnapshot.empty) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Invalid email or password' 
+        error: 'Invalid name or password' 
       }, { status: 401 });
     }
 
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (adminData.password !== password) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Invalid email or password' 
+        error: 'Invalid name or password' 
       }, { status: 401 });
     }
 

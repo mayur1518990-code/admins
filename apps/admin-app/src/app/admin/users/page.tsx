@@ -100,9 +100,6 @@ const UserRow = memo(({
             <div className="text-sm font-medium text-gray-900">
               {user.name}
             </div>
-            <div className="text-sm text-gray-500">
-              {user.email || user.phone || 'No contact info'}
-            </div>
           </div>
         </div>
       </td>
@@ -742,7 +739,6 @@ export default function UsersPage() {
                       <h3 className="text-base font-medium text-gray-900">
                         {user.name}
                       </h3>
-                      <p className="text-sm text-gray-500">{user.email || user.phone || 'No contact info'}</p>
                     </div>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${ROLE_COLORS[user.role] || ROLE_COLORS.default}`}>
                       {user.role}

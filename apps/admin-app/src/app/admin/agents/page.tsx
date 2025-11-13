@@ -523,9 +523,6 @@ export default function AgentsPage() {
                             <div className="text-sm font-medium text-gray-900">
                               {agent.name}
                             </div>
-                            <div className="text-sm text-gray-500">
-                              {agent.email}
-                            </div>
                           </div>
                         </div>
                       </td>
@@ -606,7 +603,6 @@ export default function AgentsPage() {
                       <h3 className="text-base font-medium text-gray-900">
                         {agent.name}
                       </h3>
-                      <p className="text-sm text-gray-500">{agent.email}</p>
                     </div>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                       agent.isActive 

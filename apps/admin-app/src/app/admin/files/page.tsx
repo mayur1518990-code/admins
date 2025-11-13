@@ -201,7 +201,7 @@ export default function FilesPage() {
     console.log('[Files Page] Setting up Firestore listener (using centralized auth)...');
     
     // Build the Firestore query based on current filters
-    let firestoreQuery = collection(db, 'files');
+    const firestoreQuery = collection(db, 'files');
     let q = query(firestoreQuery);
     
     // Apply status filter

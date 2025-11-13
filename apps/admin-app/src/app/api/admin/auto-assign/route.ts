@@ -140,7 +140,6 @@ export async function POST(request: NextRequest) {
 
     // SMART DISTRIBUTION: Assign files in a way that prevents bulk assignments
     const assignments = [];
-    let agentIndex = 0;
 
     // Use batch writes for efficiency
     const batches: any[] = [];

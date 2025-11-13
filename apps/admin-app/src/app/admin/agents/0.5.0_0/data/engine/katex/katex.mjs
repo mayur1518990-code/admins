@@ -5375,8 +5375,6 @@ var wideCharacterFont = function wideCharacterFont(wideChar, mode) {
   }
 };
 
-/* eslint no-console:0 */
-
 /**
  * Looks up the given symbol in fontMetrics, after applying any symbol
  * replacements defined in symbol.js

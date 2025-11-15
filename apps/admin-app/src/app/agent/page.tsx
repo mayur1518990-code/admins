@@ -55,6 +55,8 @@ export default function AgentDashboard() {
   const [updatedFileIds, setUpdatedFileIds] = useState<Set<string>>(() => new Set());
   const previousFileSignaturesRef = useRef<Map<string, string>>(new Map());
   const isInitialLoadRef = useRef(true); // Track if this is the first load after login
+  const [downloadUrls, setDownloadUrls] = useState<Map<string, string>>(new Map());
+  const fetchedDownloadUrlsRef = useRef<Set<string>>(new Set());
 
   const trackFileUpdates = useCallback((incomingFiles: AssignedFile[]) => {
     const currentIds = new Set(incomingFiles.map(file => file.id));
@@ -192,6 +194,75 @@ export default function AgentDashboard() {
     setSelectedFiles([]);
   }, [statusFilter]);
 
+  // Pre-fetch download URLs in the background for instant downloads
+  useEffect(() => {
+    if (files.length === 0) {
+      // Clean up URLs if no files
+      setDownloadUrls(new Map());
+      fetchedDownloadUrlsRef.current.clear();
+      return;
+    }
+    
+    // Clean up URLs for files that no longer exist
+    const currentFileIds = new Set(files.map(f => f.id));
+    setDownloadUrls(prev => {
+      const newMap = new Map();
+      prev.forEach((url, fileId) => {
+        if (currentFileIds.has(fileId)) {
+          newMap.set(fileId, url);
+        }
+      });
+      return newMap;
+    });
+    
+    // Clean up fetched ref for files that no longer exist
+    fetchedDownloadUrlsRef.current.forEach(fileId => {
+      if (!currentFileIds.has(fileId)) {
+        fetchedDownloadUrlsRef.current.delete(fileId);
+      }
+    });
+    
+    const fetchUrls = async () => {
+      // Pre-fetch URLs for all files that can be downloaded
+      const filesToFetch = files.filter(file => {
+        const fileId = file.id;
+        // Skip if already fetched
+        if (fetchedDownloadUrlsRef.current.has(fileId)) {
+          return false;
+        }
+        fetchedDownloadUrlsRef.current.add(fileId);
+        return true;
+      });
+      
+      if (filesToFetch.length === 0) return;
+      
+      const promises = filesToFetch.map(async (file) => {
+        const fileId = file.id;
+        try {
+          const response = await fetch(`/api/agent/files/${fileId}/download-url`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.downloadUrl) {
+              setDownloadUrls(prev => {
+                const newMap = new Map(prev);
+                newMap.set(fileId, data.downloadUrl);
+                return newMap;
+              });
+            }
+          }
+        } catch (error) {
+          // Remove from fetched set on error so we can retry later
+          fetchedDownloadUrlsRef.current.delete(fileId);
+          console.error(`Failed to pre-fetch download URL for ${fileId}:`, error);
+        }
+      });
+      
+      await Promise.all(promises);
+    };
+    
+    fetchUrls();
+  }, [files]);
+
   // Manual refresh function
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -293,28 +364,33 @@ export default function AgentDashboard() {
     }
   };
 
-  const downloadOriginalFile = async (fileId: string) => {
-    try {
-      // OPTIMIZED: Get pre-signed URL (instant response <100ms)
-      const response = await fetch(`/api/agent/files/${fileId}/download-url`);
-      
-      if (response.ok) {
-        const data = await response.json();
+  const downloadOriginalFile = useCallback((fileId: string) => {
+    // Check if we have a pre-fetched URL - use it immediately
+    const downloadUrl = downloadUrls.get(fileId);
+    
+    if (downloadUrl) {
+      // Instant download - no delay!
+      window.location.href = downloadUrl;
+      return;
+    }
+    
+    // Fallback: fetch URL if not pre-fetched
+    fetch(`/api/agent/files/${fileId}/download-url`)
+      .then(response => response.json())
+      .then(data => {
         if (data.success && data.downloadUrl) {
-          // FIXED: Direct download using window.location or iframe
-          // The Content-Disposition: attachment header forces download
           window.location.href = data.downloadUrl;
+          // Cache the URL for future use
+          setDownloadUrls(prev => new Map(prev).set(fileId, data.downloadUrl));
         } else {
           alert(`Download failed: ${data.error || 'Unknown error'}`);
         }
-      } else {
-        const errorData = await response.json();
-        alert(`Download failed: ${errorData.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      alert('Error downloading file. Please try again.');
-    }
-  };
+      })
+      .catch(error => {
+        alert('Error downloading file. Please try again.');
+        console.error('Download error:', error);
+      });
+  }, [downloadUrls]);
 
   const uploadCompletedFile = async (fileId: string) => {
     if (!uploadFile || uploading) return;
@@ -889,8 +965,7 @@ export default function AgentDashboard() {
                           {showDownloadButton && (
                             <button
                               onClick={() => downloadOriginalFile(file.id)}
-                              disabled={updatingStatus === file.id}
-                              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
                             >
                               Download
                             </button>
@@ -1035,8 +1110,7 @@ export default function AgentDashboard() {
                             {showDownloadButton && (
                               <button
                                 onClick={() => downloadOriginalFile(file.id)}
-                                disabled={updatingStatus === file.id}
-                                className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                                className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors text-sm w-full"
                               >
                                 Download
                               </button>

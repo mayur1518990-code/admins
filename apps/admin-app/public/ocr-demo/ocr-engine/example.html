@@ -368,10 +368,16 @@
     </main>
   </div>
 
-  <iframe id="ocr-frame"
-          src="./ui/sandbox.html"
-          style="position:fixed;bottom:10px;right:10px;width:500px;height:320px;border:none;z-index:2147483647;display:none;">
-  </iframe>
+  <div id="ocr-frame-container" style="position:fixed;bottom:10px;right:10px;width:500px;z-index:2147483647;display:none;background:#ffffff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);border:1px solid #e5e7eb;">
+    <div id="ocr-frame-header" style="background:#2563eb;color:#ffffff;padding:8px 12px;cursor:move;border-radius:8px 8px 0 0;user-select:none;font-size:0.875rem;font-weight:500;display:flex;justify-content:space-between;align-items:center;">
+      <span>OCR Preview</span>
+      <button id="ocr-frame-close" style="background:transparent;border:none;color:#ffffff;cursor:pointer;font-size:1.2rem;line-height:1;padding:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <iframe id="ocr-frame"
+            src="./ui/sandbox.html"
+            style="width:100%;height:320px;border:none;display:block;border-radius:0 0 8px 8px;">
+    </iframe>
+  </div>
 
   <script src="storage.js"></script>
   <script src="ocr.js"></script>
@@ -397,7 +403,10 @@
     const pagePicker = document.getElementById('pagePicker');
     const languageSelect = document.getElementById('languageSelect');
     const removeBordersCheckbox = document.getElementById('removeBorders');
+    const ocrFrameContainer = document.getElementById('ocr-frame-container');
     const ocrFrame = document.getElementById('ocr-frame');
+    const ocrFrameHeader = document.getElementById('ocr-frame-header');
+    const ocrFrameClose = document.getElementById('ocr-frame-close');
 
     let currentImageData = null;
     let originalImageData = null;
@@ -761,12 +770,12 @@
     }
 
     selectBtn.addEventListener('click', async () => {
-      ocrFrame.style.display = 'block';
       await ensureSelectionScript();
       progressDiv.textContent = 'Draw a rectangle over the area you want to capture.';
     });
 
     document.addEventListener('ocr-aborted', () => {
+      ocrFrameContainer.style.display = 'none';
       progressDiv.textContent = 'Selection cancelled. Try again when ready.';
     });
 
@@ -803,6 +812,9 @@
         
         handleNewSelection(dataUrl);
 
+        // Show the OCR frame only after area selection is complete
+        ocrFrameContainer.style.display = 'block';
+        
         ocrFrame.contentWindow.postMessage({
           method: 'proceed',
           href: dataUrl,
@@ -823,8 +835,53 @@
     window.addEventListener('message', event => {
       const { method } = event.data || {};
       if (method === 'remove-iframe') {
-        ocrFrame.style.display = 'none';
+        ocrFrameContainer.style.display = 'none';
       }
+    });
+
+    // Drag functionality for OCR frame
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+
+    ocrFrameHeader.addEventListener('mousedown', (e) => {
+      if (e.target === ocrFrameClose) return; // Don't drag when clicking close button
+      isDragging = true;
+      const rect = ocrFrameContainer.getBoundingClientRect();
+      dragOffset.x = e.clientX - rect.left;
+      dragOffset.y = e.clientY - rect.top;
+      ocrFrameHeader.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      const maxX = window.innerWidth - ocrFrameContainer.offsetWidth;
+      const maxY = window.innerHeight - ocrFrameContainer.offsetHeight;
+      
+      let newX = e.clientX - dragOffset.x;
+      let newY = e.clientY - dragOffset.y;
+      
+      // Constrain to viewport
+      newX = Math.max(0, Math.min(newX, maxX));
+      newY = Math.max(0, Math.min(newY, maxY));
+      
+      ocrFrameContainer.style.left = newX + 'px';
+      ocrFrameContainer.style.top = newY + 'px';
+      ocrFrameContainer.style.right = 'auto';
+      ocrFrameContainer.style.bottom = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        ocrFrameHeader.style.cursor = 'move';
+      }
+    });
+
+    // Close button functionality
+    ocrFrameClose.addEventListener('click', () => {
+      ocrFrameContainer.style.display = 'none';
     });
 
     pagePicker.addEventListener('change', (event) => {
